@@ -31,7 +31,19 @@ jobs:
       - name: 抓取数据（成分股 → 个股估值 → 分红 → 聚合）
         env:
           STOCK_WORKERS: '5'
-        run: python scripts/fetch_data.py
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::第 $attempt 次尝试"
+            if python scripts/fetch_data.py; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "第 $attempt 次失败，等 60 秒后重试（境外访问国内数据源偶发连接重置）"
+            sleep 60
+          done
+          echo "::error::三次尝试均失败"
+          exit 1
 
       - name: 数据健康检查
         run: python scripts/check_data.py

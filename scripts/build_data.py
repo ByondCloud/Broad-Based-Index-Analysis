@@ -13,6 +13,7 @@ import bisect
 import datetime as dt
 import json
 import os
+import time
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,12 +34,25 @@ TREASURY_URL = (
 TREASURY_FIELD = "EMM00166466"  # 中国国债收益率 10 年
 
 
+def http_get(url, retries=4, timeout=90):
+    """带重试的 GET，返回原始 bytes。"""
+    last = None
+    for i in range(retries):
+        try:
+            return urllib.request.urlopen(
+                urllib.request.Request(url, headers=UA), timeout=timeout).read()
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            wait = 3 + 5 * i
+            print("    请求失败（第 %d 次）：%s，%d 秒后重试" % (i + 1, exc, wait), flush=True)
+            time.sleep(wait)
+    raise last
+
+
 def fetch_fred(series):
     """FRED 日频序列 → [[date, close], ...]"""
     url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + series
-    raw = urllib.request.urlopen(
-        urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
-        timeout=90).read().decode("utf-8", "replace")
+    raw = http_get(url).decode("utf-8", "replace")
     out = []
     for i, line in enumerate(raw.splitlines()):
         if i == 0 or not line.strip():
@@ -57,9 +71,7 @@ def fetch_yahoo(symbol):
     """Yahoo Finance 全历史日线 → [[date, close], ...]"""
     url = ("https://query1.finance.yahoo.com/v8/finance/chart/%s"
            "?period1=0&period2=9999999999&interval=1d" % symbol)
-    raw = urllib.request.urlopen(
-        urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
-        timeout=90).read().decode("utf-8", "replace")
+    raw = http_get(url).decode("utf-8", "replace")
     result = (json.loads(raw).get("chart") or {}).get("result") or []
     if not result:
         raise RuntimeError("Yahoo 返回空数据：%s" % symbol)
@@ -101,8 +113,7 @@ def fetch_index_ohlc(code):
     """日 K 线：[日期, 开, 高, 低, 收, 成交额(亿元)]"""
     url = ("https://www.csindex.com.cn/csindex-home/perf/index-perf"
            "?indexCode=%s&startDate=20160101&endDate=20991231" % code)
-    data = json.loads(urllib.request.urlopen(
-        urllib.request.Request(url, headers=UA), timeout=90).read())["data"]
+    data = json.loads(http_get(url))["data"]
     out = {}
     for r in data or []:
         d = r.get("tradeDate") or ""
@@ -122,8 +133,7 @@ def fetch_treasury():
     rows = {}
     page = 1
     while True:
-        payload = json.loads(urllib.request.urlopen(
-            urllib.request.Request(TREASURY_URL.format(page=page), headers=UA), timeout=90).read())
+        payload = json.loads(http_get(TREASURY_URL.format(page=page)))
         result = payload.get("result") or {}
         data = result.get("data") or []
         if not data:
