@@ -1,0 +1,34 @@
+name: 连通性探测
+
+# 只手动触发：验证 GitHub 的 runner 能不能访问中证指数与东方财富的接口。
+# 结果决定自动化方案是否成立，不涉及任何业务数据。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 测试三个数据源
+        run: |
+          test_url () {
+            printf '\n== %s\n' "$1"
+            out=$(curl -sS -o /tmp/body -w 'HTTP %{http_code} | %{time_total}s | %{size_download} bytes' --max-time 40 \
+              -H 'User-Agent: Mozilla/5.0' "$1" 2>&1) || out="curl 失败: $?"
+            echo "$out"
+            head -c 160 /tmp/body | tr -d '\0' || true
+            echo
+          }
+
+          test_url 'https://oss-ch.csindex.com.cn/static/html/csindex/public/uploads/file/autofile/cons/000300cons.xls'
+          test_url 'https://www.csindex.com.cn/csindex-home/perf/index-perf?indexCode=000300&startDate=20260101&endDate=20991231'
+          test_url 'https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_VALUEANALYSIS_DET&columns=ALL&filter=(SECURITY_CODE%3D%22601318%22)&pageNumber=1&pageSize=3&source=WEB&client=WEB'
+          test_url 'https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_SHAREBONUS_DET&columns=ALL&filter=(EX_DIVIDEND_DATE%3E%3D%272025-01-01%27)&pageNumber=1&pageSize=3&source=WEB&client=WEB'
+          test_url 'https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPTA_WEB_TREASURYYIELD&columns=ALL&pageNumber=1&pageSize=3&source=WEB&client=WEB'
+
+      - name: 说明
+        run: |
+          echo "全部返回 HTTP 200 且能看到内容 → 可以走 GitHub Actions 自动更新"
+          echo "任一失败/超时 → 改用本地定时任务 + git push 的方案"

@@ -1,0 +1,62 @@
+name: 每日更新估值并按 gh-pages 发布
+
+on:
+  schedule:
+    # 北京时间 21:00（UTC 13:00），周一至周五。
+    # A 股 15:00 收盘，东财估值数据通常 18:00-20:00 才稳定，留足时间。
+    - cron: '0 13 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 抓取数据（成分股 → 个股估值 → 分红 → 聚合）
+        env:
+          STOCK_WORKERS: '5'
+        run: python scripts/fetch_data.py
+
+      - name: 数据健康检查
+        run: python scripts/check_data.py
+
+      - name: 生成站点时间戳
+        run: |
+          echo "build: $(date -u '+%Y-%m-%d %H:%M UTC')" > web/BUILD.txt
+          cat web/BUILD.txt
+
+      - name: 发布到 gh-pages
+        run: |
+          set -e
+          rm -rf /tmp/site && mkdir -p /tmp/site
+          cp -r web/. /tmp/site/
+          touch /tmp/site/.nojekyll
+          cd /tmp/site
+          git init -q
+          git checkout -q -b gh-pages
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "data: $(date -u '+%Y-%m-%d')"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
+
+      - name: 失败时告警
+        if: failure()
+        run: |
+          echo "::error::数据更新失败，站点仍保留上一次成功发布的内容。"
