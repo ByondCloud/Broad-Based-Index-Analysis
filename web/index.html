@@ -17,14 +17,48 @@
         <p class="sub">沪深300 / 中证A500 · 自由流通市值加权 · 数据 <b id="dataStart">2018-01</b> 至 <b id="dataDate">--</b></p>
       </div>
     </div>
-    <div class="topbar-right">
+    <div class="topbar-right a-share-only">
       <div class="range-group" id="rangeGroup" role="group" aria-label="时间区间"></div>
     </div>
   </header>
 
   <nav class="index-tabs" id="indexTabs" aria-label="指数选择"></nav>
 
-  <section class="card advice" id="adviceCard">
+  <section class="card nikkei" id="nikkeiCard" hidden>
+    <div class="card-head">
+      <h2 id="nkTitle">日经225 · 定投年化</h2>
+      <div class="nk-range">
+        <span class="nk-group">
+          <input id="nkFromY" class="nk-part y" type="text" inputmode="numeric" maxlength="4" spellcheck="false" autocomplete="off" aria-label="起始年" placeholder="1989" /><i class="nk-unit">年</i>
+          <input id="nkFromM" class="nk-part m" type="text" inputmode="numeric" maxlength="2" spellcheck="false" autocomplete="off" aria-label="起始月" placeholder="12" /><i class="nk-unit">月</i>
+          <input id="nkFromD" class="nk-part d" type="text" inputmode="numeric" maxlength="2" spellcheck="false" autocomplete="off" aria-label="起始日" placeholder="29" /><i class="nk-unit">日</i>
+        </span>
+        <span class="nk-dash">—</span>
+        <span class="nk-group">
+          <input id="nkToY" class="nk-part y" type="text" inputmode="numeric" maxlength="4" spellcheck="false" autocomplete="off" aria-label="结束年" placeholder="2026" /><i class="nk-unit">年</i>
+          <input id="nkToM" class="nk-part m" type="text" inputmode="numeric" maxlength="2" spellcheck="false" autocomplete="off" aria-label="结束月" placeholder="10" /><i class="nk-unit">月</i>
+          <input id="nkToD" class="nk-part d" type="text" inputmode="numeric" maxlength="2" spellcheck="false" autocomplete="off" aria-label="结束日" placeholder="16" /><i class="nk-unit">日</i>
+        </span>
+      </div>
+    </div>
+    <div class="nk-range-note" id="nkRangeNote">数据范围 --</div>
+    <div id="nikkeiChart" class="chart chart-nk"></div>
+    <div class="nk-result">
+      <div class="nk-block">
+        <div class="nk-label">定投年化收益</div>
+        <div class="nk-val" id="nkIrr">--</div>
+        <div class="nk-sub" id="nkIrrSub">--</div>
+      </div>
+      <div class="nk-block">
+        <div class="nk-label">同期一次性买入</div>
+        <div class="nk-val small" id="nkBh">--</div>
+        <div class="nk-sub" id="nkBhSub">--</div>
+      </div>
+    </div>
+    <div class="nk-note" id="nkNote">--</div>
+  </section>
+
+  <section class="card advice a-share-only" id="adviceCard">
     <div class="advice-head">
       <div class="advice-title-wrap">
         <div class="advice-title">本周加投建议</div>
@@ -42,9 +76,9 @@
     <div class="advice-cols" id="adviceCols"></div>
   </section>
 
-  <section class="kpis" id="kpis"></section>
+  <section class="kpis a-share-only" id="kpis"></section>
 
-  <section class="card">
+  <section class="card a-share-only">
     <div class="card-head">
       <div class="metric-tabs" id="metricTabs" role="tablist"></div>
       <div class="card-note" id="mainNote"></div>
@@ -52,7 +86,7 @@
     <div id="mainChart" class="chart chart-main"></div>
   </section>
 
-  <section class="card">
+  <section class="card a-share-only">
     <div class="card-head">
       <h2>日 K 线</h2>
       <div class="card-note" id="klineNote"></div>
@@ -60,7 +94,7 @@
     <div id="klineChart" class="chart chart-k"></div>
   </section>
 
-  <section class="grid-2">
+  <section class="grid-2 a-share-only">
     <div class="card">
       <div class="card-head">
         <h2>股息率 vs 10年期国债收益率</h2>
@@ -77,7 +111,7 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card a-share-only">
     <div class="card-head">
       <h2>利差分布与当前所处位置</h2>
       <div class="card-note" id="distNote"></div>
@@ -85,7 +119,7 @@
     <div id="distChart" class="chart chart-dist"></div>
   </section>
 
-  <footer class="foot">
+  <footer class="foot a-share-only">
     <div class="foot-grid">
       <div>
         <h3>指标口径（自由流通市值加权）</h3>

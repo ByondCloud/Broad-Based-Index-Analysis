@@ -46,6 +46,15 @@ body {
   gap: 20px;
   flex-wrap: wrap;
   margin-bottom: 18px;
+  /* 吸顶：滚动时区间选择器始终可点（类似 Excel 锁定首行） */
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  padding: 12px 0 10px;
+  background: rgba(246, 248, 252, .88);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, .05);
 }
 
 .brand { display: flex; align-items: center; gap: 14px; }
@@ -87,6 +96,100 @@ body {
   background: #fff7ed;
   border: 1px solid #fde3c4;
   white-space: nowrap;
+}
+
+/* ---- 日经225 模式 ---- */
+body.market-mode .a-share-only { display: none !important; }
+
+.card.nikkei { margin-top: 0; }
+
+.chart-nk { height: 460px; }
+
+.nk-range { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
+.nk-group { display: inline-flex; align-items: center; gap: 3px; }
+
+.nk-part {
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .3px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.nk-part.y { width: 56px; }
+.nk-part.m, .nk-part.d { width: 38px; }
+
+.nk-part::placeholder { color: #c3cbd6; font-weight: 500; }
+.nk-part:hover { border-color: #cbd5e1; }
+.nk-part:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.nk-part.bad { border-color: #be123c; box-shadow: 0 0 0 3px rgba(190, 18, 60, .12); }
+
+.nk-unit { font-style: normal; font-size: 11.5px; color: var(--muted); margin-right: 4px; }
+
+.nk-range-note {
+  margin: -4px 0 10px;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+.nk-dash { color: var(--muted); font-size: 13px; }
+
+.nk-result {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 220px));
+  gap: 40px;
+  margin-top: 6px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--line);
+}
+
+.nk-label { font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+
+.nk-val {
+  font-size: 40px; font-weight: 760; letter-spacing: -1.2px; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.nk-val.small { font-size: 26px; font-weight: 700; letter-spacing: -.6px; }
+.nk-val.up { color: #15803d; }
+.nk-val.down { color: #be123c; }
+
+.nk-sub { font-size: 11.5px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+.nk-note {
+  margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line);
+  font-size: 11.5px; color: var(--muted); line-height: 1.6;
+}
+
+#nikkeiCard[hidden] { display: none !important; }
+
+@media (max-width: 720px) {
+  @media (max-width: 720px) {
+  /* 手机上吸顶会占掉太多竖向空间，改为普通排布 */
+  .topbar {
+    position: static;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+  }
+}
+
+.chart-nk { height: 320px; }
+  .nk-result { grid-template-columns: 1fr; gap: 18px; }
+  .nk-val { font-size: 32px; }
+  .nk-val.small { font-size: 22px; }
 }
 
 .brand-text .sub {

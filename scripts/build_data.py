@@ -33,6 +33,70 @@ TREASURY_URL = (
 TREASURY_FIELD = "EMM00166466"  # 中国国债收益率 10 年
 
 
+def fetch_fred(series):
+    """FRED 日频序列 → [[date, close], ...]"""
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + series
+    raw = urllib.request.urlopen(
+        urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
+        timeout=90).read().decode("utf-8", "replace")
+    out = []
+    for i, line in enumerate(raw.splitlines()):
+        if i == 0 or not line.strip():
+            continue
+        parts = line.split(",")
+        if len(parts) < 2 or parts[1] in (".", ""):
+            continue
+        try:
+            out.append([parts[0].strip(), round(float(parts[1]), 2)])
+        except ValueError:
+            continue
+    return out
+
+
+def fetch_yahoo(symbol):
+    """Yahoo Finance 全历史日线 → [[date, close], ...]"""
+    url = ("https://query1.finance.yahoo.com/v8/finance/chart/%s"
+           "?period1=0&period2=9999999999&interval=1d" % symbol)
+    raw = urllib.request.urlopen(
+        urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}),
+        timeout=90).read().decode("utf-8", "replace")
+    result = (json.loads(raw).get("chart") or {}).get("result") or []
+    if not result:
+        raise RuntimeError("Yahoo 返回空数据：%s" % symbol)
+    res = result[0]
+    ts = res.get("timestamp") or []
+    closes = ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
+    out = []
+    for t, c in zip(ts, closes):
+        if c is None:
+            continue
+        d = dt.datetime.utcfromtimestamp(t).strftime("%Y-%m-%d")
+        out.append([d, round(float(c), 2)])
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def fetch_markets():
+    """海外市场：日经225（FRED 1949 起）+ 标普500（Yahoo 1970 起，失败回退 FRED 近10年）。"""
+    markets = []
+    nikkei = fetch_fred("NIKKEI225")
+    markets.append({"code": "N225", "name": "日经225", "color": "#c0392b",
+                    "source": "FRED · NIKKEI225", "rows": nikkei})
+    print("    日经225 %d 个交易日，%s → %s" % (len(nikkei), nikkei[0][0], nikkei[-1][0]))
+
+    try:
+        spx = fetch_yahoo("%5EGSPC")
+        source = "Yahoo Finance · ^GSPC"
+    except Exception as exc:  # noqa: BLE001
+        print("    Yahoo 失败（%s），回退 FRED SP500（仅近 10 年）" % exc)
+        spx = fetch_fred("SP500")
+        source = "FRED · SP500"
+    markets.append({"code": "SPX", "name": "标普500", "color": "#1d4ed8",
+                    "source": source, "rows": spx})
+    print("    标普500 %d 个交易日，%s → %s（%s）" % (len(spx), spx[0][0], spx[-1][0], source))
+    return markets
+
+
 def fetch_index_ohlc(code):
     """日 K 线：[日期, 开, 高, 低, 收, 成交额(亿元)]"""
     url = ("https://www.csindex.com.cn/csindex-home/perf/index-perf"
@@ -183,6 +247,9 @@ def main():
     bonds = fetch_treasury()
     print("    %d 条，%s → %s" % (len(bonds), bonds[0][0], bonds[-1][0]))
 
+    print("拉取海外市场点位 ...")
+    markets = fetch_markets()
+
     latest = max(r[-1][0] for r in (i["rows"] for i in indices))
     payload = {
         "meta": {
@@ -201,6 +268,7 @@ def main():
         },
         "indices": indices,
         "bonds": bonds,
+        "markets": markets,
     }
     body = ("window.__VALUATION_DATA__ = "
             + json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + ";\n")

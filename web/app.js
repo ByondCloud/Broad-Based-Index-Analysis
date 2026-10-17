@@ -38,11 +38,58 @@
     { key: 'bear', label: '熊市极端', value: 45, pe: '94%', note: '弱市里更早停手' }
   ];
 
-  var state = { index: DATA.indices[0].code, range: 3, metric: 'pe', stop: 'mid' };
+  var MARKETS = DATA.markets || [];
 
-  // 支持通过地址栏 hash 直达某个视图，例如 #000510.SH/10/pb
+  var state = { index: DATA.indices[0].code, range: 3, metric: 'pe', stop: 'mid', ranges: {} };
+
+  // 默认区间 = 该市场的全部数据范围
+  MARKETS.forEach(function (m) {
+    var first = m.rows[0][0], last = m.rows[m.rows.length - 1][0];
+    state.ranges[m.code] = { from: first, to: last };
+  });
+
+  function marketOf(code) {
+    for (var i = 0; i < MARKETS.length; i++) if (MARKETS[i].code === code) return MARKETS[i];
+    return null;
+  }
+
+  var NK_FIELDS = {
+    from: ['nkFromY', 'nkFromM', 'nkFromD'],
+    to: ['nkToY', 'nkToM', 'nkToD']
+  };
+
+  function nkEl(side, i) {
+    return document.getElementById(NK_FIELDS[side][i]);
+  }
+
+  // 解析用户输入：2000 / 2000-05 / 2000-05-06 / 2000/5/6，缺省补成区间首末
+  function nkParseDate(str, isEnd) {
+    var s = String(str || '').trim().replace(/[\/.]/g, '-').replace(/\s+/g, '');
+    var m = s.match(/^(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?$/);
+    if (!m) return null;
+    var y = +m[1], mo = m[2] ? +m[2] : null, d = m[3] ? +m[3] : null;
+    if (y < 1600 || y > 2100) return null;
+    if (mo === null) return isEnd ? y + '-12-31' : y + '-01-01';
+    if (mo < 1 || mo > 12) return null;
+    if (d === null) {
+      var last = new Date(y, mo, 0).getDate();
+      return isEnd ? y + '-' + pad(mo) + '-' + pad(last) : y + '-' + pad(mo) + '-01';
+    }
+    if (d < 1 || d > 31) return null;
+    return y + '-' + pad(mo) + '-' + pad(d);
+  }
+
+  // 支持通过地址栏 hash 直达某个视图，例如 #000510.SH/10/pb 或 #N225/1989-12-29/2026-10-16
   (function readHash() {
     var parts = (location.hash || '').replace(/^#/, '').split('/');
+    var mk = marketOf(parts[0]);
+    if (mk) {
+      state.index = mk.code;
+      var a = nkParseDate(parts[1], false), b = nkParseDate(parts[2], true);
+      if (a) state.ranges[mk.code].from = a;
+      if (b) state.ranges[mk.code].to = b;
+      return;
+    }
     if (parts[0] && DATA.indices.some(function (i) { return i.code === parts[0]; })) state.index = parts[0];
     if (parts[1]) state.range = parts[1] === 'all' ? 'all' : (+parts[1] || state.range);
     if (parts[2] && METRICS.some(function (m) { return m.key === parts[2]; })) state.metric = parts[2];
@@ -182,7 +229,7 @@
     ((DATA.indices[0].rows[0] || [''])[0] || '').slice(0, 7) || '--';
 
   function renderIndexTabs() {
-    elIndexTabs.innerHTML = DATA.indices.map(function (idx) {
+    var html = DATA.indices.map(function (idx) {
       var rows = SERIES[idx.code];
       var last = rows[rows.length - 1];
       return '<div class="index-tab' + (idx.code === state.index ? ' on' : '') + '" data-code="' + idx.code +
@@ -192,6 +239,17 @@
         '<span class="it-pe">PE(TTM)<b>' + fmt(last.pe, metricCfg('pe')) + '</b></span>' +
         '</div>';
     }).join('');
+
+    MARKETS.forEach(function (m) {
+      var last = m.rows[m.rows.length - 1];
+      html += '<div class="index-tab' + (state.index === m.code ? ' on' : '') + '" data-code="' + m.code +
+        '" style="--tab-accent:' + (m.color || '#334155') + '">' +
+        '<span class="dot"></span>' +
+        '<span><span class="it-name">' + m.name + '</span><br><span class="it-code">' + m.code + ' · 定投</span></span>' +
+        '<span class="it-pe">收盘<b>' + fmt(last[1], metricCfg('pe')) + '</b></span>' +
+        '</div>';
+    });
+    elIndexTabs.innerHTML = html;
   }
 
   elRange.innerHTML = RANGES.map(function (r) {
@@ -222,6 +280,81 @@
     state.metric = b.dataset.metric;
     renderAll();
   });
+
+  /* ---------------- 海外市场：日期输入 ---------------- */
+  function nkReadSide(side) {
+    var yEl = nkEl(side, 0), mEl = nkEl(side, 1), dEl = nkEl(side, 2);
+    var y = parseInt(yEl.value, 10);
+    if (!y || y < 1600 || y > 2100) return null;
+    var isEnd = side === 'to';
+    var m = parseInt(mEl.value, 10);
+    if (!m) m = isEnd ? 12 : 1;
+    if (m < 1 || m > 12) return null;
+    var lastDay = new Date(y, m, 0).getDate();
+    var d = parseInt(dEl.value, 10);
+    if (!d) d = isEnd ? lastDay : 1;
+    if (d < 1 || d > lastDay) return null;
+    return y + '-' + pad(m) + '-' + pad(d);
+  }
+
+  function nkWriteSide(side, dateStr) {
+    var p = dateStr.split('-');
+    nkEl(side, 0).value = p[0];
+    nkEl(side, 1).value = +p[1];
+    nkEl(side, 2).value = +p[2];
+  }
+
+  function nkCommit() {
+    var m = marketOf(state.index);
+    if (!m) return;
+    var r = state.ranges[m.code];
+    var first = m.rows[0][0], last = m.rows[m.rows.length - 1][0];
+    var a = nkReadSide('from') || r.from;
+    var b = nkReadSide('to') || r.to;
+    if (a < first) a = first;
+    if (b > last) b = last;
+    if (a > b) { var t = a; a = b; b = t; }
+    r.from = a;
+    r.to = b;
+    renderAll();
+  }
+
+  function nkBad(el) {
+    el.classList.add('bad');
+    setTimeout(function () { el.classList.remove('bad'); }, 900);
+  }
+
+  function nkBind(side) {
+    var yEl = nkEl(side, 0), mEl = nkEl(side, 1), dEl = nkEl(side, 2);
+    [yEl, mEl, dEl].forEach(function (el, idx) {
+      el.addEventListener('input', function () {
+        el.value = el.value.replace(/[^\d]/g, '');
+        if (el.value.length >= (+el.getAttribute('maxlength')) && idx < 2) {
+          [mEl, dEl][idx].focus();
+          [mEl, dEl][idx].select();
+        }
+      });
+      el.addEventListener('change', function () {
+        if (nkReadSide(side)) nkCommit();
+        else {
+          var m = marketOf(state.index);
+          nkBad(el);
+          if (m) nkWriteSide(side, side === 'from' ? state.ranges[m.code].from : state.ranges[m.code].to);
+        }
+      });
+      el.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        if (nkReadSide(side)) { nkCommit(); el.blur(); } else nkBad(el);
+      });
+      el.addEventListener('blur', function () {
+        var m = marketOf(state.index);
+        if (m) nkWriteSide(side, side === 'from' ? state.ranges[m.code].from : state.ranges[m.code].to);
+      });
+    });
+  }
+  nkBind('from');
+  nkBind('to');
 
   /* ---------------- KPI ---------------- */
   function renderKpis(rows) {
@@ -1029,11 +1162,121 @@
   }
 
   /* ---------------- 统一渲染 ---------------- */
+  /* ---------------- 海外市场视图 ---------------- */
+  function renderMarket(m) {
+    var rowsAll = m.rows || [];
+    if (!rowsAll.length) return;
+    var r = state.ranges[m.code];
+    var first = rowsAll[0][0], last = rowsAll[rowsAll.length - 1][0];
+    var a = r.from < first ? first : r.from;
+    var b = r.to > last ? last : r.to;
+    if (a > b) { var tmp = a; a = b; b = tmp; }
+    r.from = a;
+    r.to = b;
+
+    var title = document.getElementById('nkTitle');
+    if (title) title.textContent = m.name + ' · 定投年化';
+
+    var rangeNote = document.getElementById('nkRangeNote');
+    if (rangeNote) {
+      rangeNote.textContent = '数据范围 ' + first + ' ~ ' + last + ' · ' +
+        String(rowsAll.length).replace(/\B(?=(\d{3})+(?!\d))/g, ',') +
+        ' 个交易日' + (m.source ? ' · ' + m.source : '');
+    }
+
+    var active = document.activeElement;
+    if (!active || NK_FIELDS.from.indexOf(active.id) < 0) nkWriteSide('from', a);
+    if (!active || NK_FIELDS.to.indexOf(active.id) < 0) nkWriteSide('to', b);
+
+    var rows = rowsAll.filter(function (x) { return x[0] >= a && x[0] <= b; });
+
+    var elIrr = document.getElementById('nkIrr');
+    var elIrrSub = document.getElementById('nkIrrSub');
+    var elBh = document.getElementById('nkBh');
+    var elBhSub = document.getElementById('nkBhSub');
+    var elNote = document.getElementById('nkNote');
+
+    if (rows.length < 20) {
+      elIrr.textContent = '--'; elBh.textContent = '--';
+      elIrrSub.textContent = ''; elBhSub.textContent = '';
+      elNote.textContent = '所选区间数据不足。';
+      return;
+    }
+
+    var px = rows.map(function (x) { return x[1]; });
+    var dates = rows.map(function (x) { return x[0]; });
+    var t0 = new Date(dates[0] + 'T00:00:00').getTime();
+    var tEnd = new Date(dates[dates.length - 1] + 'T00:00:00').getTime();
+
+    // 每个交易日定额定投 1 份
+    var units = 0, flows = [], n = 0;
+    for (var i = 0; i < px.length; i++) {
+      if (!(px[i] > 0)) continue;
+      units += 1 / px[i];
+      n++;
+      flows.push([(new Date(dates[i] + 'T00:00:00').getTime() - t0) / 86400000, -1]);
+    }
+    var endVal = units * px[px.length - 1];
+    flows.push([(tEnd - t0) / 86400000, endVal]);
+    var irr = xirr(flows);
+    var totalRet = endVal / n - 1;
+
+    var days = Math.max(1, (tEnd - t0) / 86400000);
+    var bhAnn = Math.pow(px[px.length - 1] / px[0], 365 / days) - 1;
+    var bhTotal = px[px.length - 1] / px[0] - 1;
+    var sign = function (v) { return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; };
+    // 累计收益超过 10 倍时改用「倍」显示，避免出现 +36971.8% 这种长串
+    var signTotal = function (v) {
+      if (Math.abs(v) >= 10) return (1 + v).toFixed(1) + ' 倍';
+      return sign(v);
+    };
+
+    elIrr.textContent = sign(irr);
+    elIrr.className = 'nk-val ' + (irr >= 0 ? 'up' : 'down');
+    elIrrSub.textContent = '累计 ' + signTotal(totalRet) + ' · 投入 ' + n + ' 次';
+    elBh.textContent = sign(bhAnn);
+    elBh.className = 'nk-val small ' + (bhAnn >= 0 ? 'up' : 'down');
+    elBhSub.textContent = '累计 ' + signTotal(bhTotal);
+    elNote.textContent = '所选区间 ' + dates[0] + ' ~ ' + dates[dates.length - 1] + '，共 ' + n +
+      ' 个交易日 · 每个交易日定额定投，一直持有不卖出 · 价格口径（不含股息），未计费用。';
+
+    if (!charts.market) charts.market = echarts.init(document.getElementById('nikkeiChart'));
+    var data = rows.map(function (x) { return [x[0], x[1]]; });
+    var color = m.color || '#334155';
+    charts.market.setOption({
+      grid: { left: 62, right: 24, top: 26, bottom: 42 },
+      tooltip: baseTooltip(function (params) {
+        if (!params.length) return '';
+        var p = params[0];
+        return '<div style="font-weight:600;margin-bottom:4px">' + p.axisValueLabel + '</div>' +
+          '<div style="display:flex;justify-content:space-between;gap:18px">' +
+          '<span style="color:#cbd5e1">' + p.marker + m.name + '</span>' +
+          '<b style="font-variant-numeric:tabular-nums">' + fmt(p.value[1], metricCfg('pe')) + '</b></div>';
+      }),
+      xAxis: timeAxis(dates),
+      yAxis: [{
+        type: 'value', scale: true, position: 'left',
+        axisLabel: {
+          color: AXIS_TEXT, fontSize: 11,
+          formatter: function (v) { return v >= 10000 ? (v / 10000).toFixed(1) + '万' : v; }
+        },
+        splitLine: { lineStyle: { color: SPLIT_LINE } }
+      }],
+      series: [{
+        name: m.name, type: 'line', data: data,
+        showSymbol: false, sampling: 'lttb', smooth: false,
+        lineStyle: { width: 1.6, color: color },
+        areaStyle: { color: hexA(color, .10) }
+      }]
+    }, true);
+    charts.market.resize();
+  }
+
   function renderAll() {
-    var idx = DATA.indices.filter(function (i) { return i.code === state.index; })[0] || DATA.indices[0];
-    var accent = INDEX_COLORS[idx.code] || '#2563eb';
-    document.documentElement.style.setProperty('--accent', accent);
-    document.documentElement.style.setProperty('--accent-soft', hexA(accent, .1));
+    var mk = marketOf(state.index);
+    var isMarket = !!mk;
+    document.body.classList.toggle('market-mode', isMarket);
+    document.getElementById('nikkeiCard').hidden = !isMarket;
 
     renderIndexTabs();
 
@@ -1051,6 +1294,20 @@
         node.classList.toggle('on', node.dataset.stop === state.stop);
       });
     }
+
+    if (isMarket) {
+      renderMarket(mk);
+      try {
+        var rr = state.ranges[mk.code];
+        history.replaceState(null, '', '#' + mk.code + '/' + rr.from + '/' + rr.to);
+      } catch (err) { /* file:// 下忽略 */ }
+      return;
+    }
+
+    var idx = DATA.indices.filter(function (i) { return i.code === state.index; })[0] || DATA.indices[0];
+    var accent = INDEX_COLORS[idx.code] || '#2563eb';
+    document.documentElement.style.setProperty('--accent', accent);
+    document.documentElement.style.setProperty('--accent-soft', hexA(accent, .1));
 
     var cfg = metricCfg(state.metric);
     var allRows = SERIES[idx.code];
