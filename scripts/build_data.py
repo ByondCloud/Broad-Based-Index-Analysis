@@ -13,6 +13,7 @@ import bisect
 import datetime as dt
 import json
 import os
+import re
 import time
 import urllib.request
 
@@ -50,9 +51,9 @@ def http_get(url, retries=4, timeout=90):
 
 
 def fetch_fred(series):
-    """FRED 日频序列 → [[date, close], ...]"""
+    """FRED 日频序列 → [[date, close], ...]（有兜底，重试 2 次即可）"""
     url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=" + series
-    raw = http_get(url).decode("utf-8", "replace")
+    raw = http_get(url, retries=2).decode("utf-8", "replace")
     out = []
     for i, line in enumerate(raw.splitlines()):
         if i == 0 or not line.strip():
@@ -71,7 +72,7 @@ def fetch_yahoo(symbol):
     """Yahoo Finance 全历史日线 → [[date, close], ...]"""
     url = ("https://query1.finance.yahoo.com/v8/finance/chart/%s"
            "?period1=0&period2=9999999999&interval=1d" % symbol)
-    raw = http_get(url).decode("utf-8", "replace")
+    raw = http_get(url, retries=2).decode("utf-8", "replace")
     result = (json.loads(raw).get("chart") or {}).get("result") or []
     if not result:
         raise RuntimeError("Yahoo 返回空数据：%s" % symbol)
@@ -88,21 +89,52 @@ def fetch_yahoo(symbol):
     return out
 
 
-def fetch_markets():
-    """海外市场：日经225（FRED 1949 起）+ 标普500（Yahoo 1970 起，失败回退 FRED 近10年）。"""
+def load_previous():
+    """读上一次生成的 app-data.js，作为网络失败时的兜底数据。"""
+    if not os.path.exists(OUT):
+        return {}
+    try:
+        text = open(OUT, encoding="utf-8").read()
+        m = re.search(r"window\.__VALUATION_DATA__\s*=\s*(\{.*\})\s*;\s*$", text, re.S)
+        return json.loads(m.group(1)) if m else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def fetch_markets(prev):
+    """海外市场：日经225（FRED 1949 起）+ 标普500（Yahoo 1970 起，失败回退 FRED 近10年）。
+    两者都拿不到时，沿用上一次 app-data.js 里的数据。"""
     markets = []
-    nikkei = fetch_fred("NIKKEI225")
-    markets.append({"code": "N225", "name": "日经225", "color": "#c0392b",
-                    "source": "FRED · NIKKEI225", "rows": nikkei})
-    print("    日经225 %d 个交易日，%s → %s" % (len(nikkei), nikkei[0][0], nikkei[-1][0]))
+    prev_map = {m["code"]: m for m in (prev.get("markets") or [])}
+
+    try:
+        nikkei = fetch_fred("NIKKEI225")
+        markets.append({"code": "N225", "name": "日经225", "color": "#c0392b",
+                        "source": "FRED · NIKKEI225", "rows": nikkei})
+        print("    日经225 %d 个交易日，%s → %s" % (len(nikkei), nikkei[0][0], nikkei[-1][0]))
+    except Exception as exc:  # noqa: BLE001
+        if "N225" in prev_map:
+            markets.append(prev_map["N225"])
+            print("    !! 日经225 拉取失败（%s），沿用上次数据（截至 %s）"
+                  % (exc, prev_map["N225"]["rows"][-1][0]))
+        else:
+            raise
 
     try:
         spx = fetch_yahoo("%5EGSPC")
         source = "Yahoo Finance · ^GSPC"
     except Exception as exc:  # noqa: BLE001
-        print("    Yahoo 失败（%s），回退 FRED SP500（仅近 10 年）" % exc)
-        spx = fetch_fred("SP500")
-        source = "FRED · SP500"
+        print("    Yahoo 失败（%s），尝试 FRED SP500" % exc)
+        try:
+            spx = fetch_fred("SP500")
+            source = "FRED · SP500"
+        except Exception as exc2:  # noqa: BLE001
+            if "SPX" in prev_map:
+                markets.append(prev_map["SPX"])
+                print("    !! 标普500 拉取失败（%s），沿用上次数据（截至 %s）"
+                      % (exc2, prev_map["SPX"]["rows"][-1][0]))
+                return markets
+            raise
     markets.append({"code": "SPX", "name": "标普500", "color": "#1d4ed8",
                     "source": source, "rows": spx})
     print("    标普500 %d 个交易日，%s → %s（%s）" % (len(spx), spx[0][0], spx[-1][0], source))
@@ -237,8 +269,20 @@ def main():
     dividends = json.load(open(os.path.join(RAW, "dividends.json"), encoding="utf-8"))
     print("分红数据：%d 只股票" % len(dividends))
 
+    prev = load_previous()
+
     print("拉取指数点位（日 K）...")
-    ohlc = {i["code"]: fetch_index_ohlc(i["code"]) for i in INDICES}
+    ohlc = {}
+    prev_ohlc = {i["code"].split(".")[0]: i.get("ohlc") or [] for i in (prev.get("indices") or [])}
+    for i in INDICES:
+        try:
+            ohlc[i["code"]] = fetch_index_ohlc(i["code"])
+        except Exception as exc:  # noqa: BLE001
+            old = prev_ohlc.get(i["code"])
+            if not old:
+                raise
+            ohlc[i["code"]] = {row[0]: row[1:] for row in old}
+            print("    !! %s 日 K 拉取失败（%s），沿用上次数据（%d 根）" % (i["name"], exc, len(old)))
     closes = {c: {d: v[3] for d, v in ohlc[c].items()} for c in ohlc}
     print("    沪深300 %d 根，中证A500 %d 根" % (len(ohlc["000300"]), len(ohlc["000510"])))
 
@@ -254,11 +298,17 @@ def main():
                         "ohlc": [[d] + k[d] for d in days]})
 
     print("拉取 10 年期国债收益率 ...")
-    bonds = fetch_treasury()
-    print("    %d 条，%s → %s" % (len(bonds), bonds[0][0], bonds[-1][0]))
+    try:
+        bonds = fetch_treasury()
+        print("    %d 条，%s → %s" % (len(bonds), bonds[0][0], bonds[-1][0]))
+    except Exception as exc:  # noqa: BLE001
+        if not prev.get("bonds"):
+            raise
+        bonds = prev["bonds"]
+        print("    !! 国债收益率拉取失败（%s），沿用上次数据（截至 %s）" % (exc, bonds[-1][0]))
 
     print("拉取海外市场点位 ...")
-    markets = fetch_markets()
+    markets = fetch_markets(prev)
 
     latest = max(r[-1][0] for r in (i["rows"] for i in indices))
     payload = {
