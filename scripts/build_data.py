@@ -101,6 +101,12 @@ def load_previous():
         return {}
 
 
+def fetch_us10():
+    """美国 10 年期国债收益率（FRED DGS10），只保留 2017 年以后。"""
+    data = fetch_fred("DGS10")
+    return [r for r in data if r[0] >= "2017-01-01"]
+
+
 def fetch_markets(prev):
     """海外市场：日经225（FRED 1949 起）+ 标普500（Yahoo 1970 起，失败回退 FRED 近10年）。
     两者都拿不到时，沿用上一次 app-data.js 里的数据。"""
@@ -310,6 +316,16 @@ def main():
     print("拉取海外市场点位 ...")
     markets = fetch_markets(prev)
 
+    print("拉取美债 10 年期收益率 ...")
+    try:
+        us10 = fetch_us10()
+        print("    %d 条，%s → %s" % (len(us10), us10[0][0], us10[-1][0]))
+    except Exception as exc:  # noqa: BLE001
+        if not prev.get("us10"):
+            raise
+        us10 = prev["us10"]
+        print("    !! 美债收益率拉取失败（%s），沿用上次数据（截至 %s）" % (exc, us10[-1][0]))
+
     latest = max(r[-1][0] for r in (i["rows"] for i in indices))
     payload = {
         "meta": {
@@ -328,6 +344,7 @@ def main():
         },
         "indices": indices,
         "bonds": bonds,
+        "us10": us10,
         "markets": markets,
     }
     body = ("window.__VALUATION_DATA__ = "

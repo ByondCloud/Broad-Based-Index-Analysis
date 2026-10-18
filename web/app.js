@@ -100,6 +100,18 @@
   var bondDates = DATA.bonds.map(function (b) { return b[0]; });
   var bondVals = DATA.bonds.map(function (b) { return b[1]; });
 
+  var us10Dates = (DATA.us10 || []).map(function (b) { return b[0]; });
+  var us10Vals = (DATA.us10 || []).map(function (b) { return b[1]; });
+
+  function us10At(date) {
+    var lo = 0, hi = us10Dates.length - 1, ans = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (us10Dates[mid] <= date) { ans = mid; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return ans >= 0 ? us10Vals[ans] : null;
+  }
+
   function bondAt(date) {
     var lo = 0, hi = bondDates.length - 1, ans = -1;
     while (lo <= hi) {
@@ -113,6 +125,7 @@
   DATA.indices.forEach(function (idx) {
     SERIES[idx.code] = (idx.rows || []).map(function (r) {
       var y10 = bondAt(r[0]);
+      var u10 = us10At(r[0]);
       var dy = r[4];
       return {
         date: r[0],
@@ -121,7 +134,10 @@
         pb: r[3],
         dy: dy,
         y10: y10,
-        spread: (dy != null && y10 != null) ? +(dy - y10).toFixed(4) : null
+        us10: u10,
+        spread: (dy != null && y10 != null) ? +(dy - y10).toFixed(4) : null,
+        spreadUs: (dy != null && u10 != null) ? +(dy - u10).toFixed(4) : null,
+        cnUs: (y10 != null && u10 != null) ? +(y10 - u10).toFixed(4) : null
       };
     });
   });
@@ -924,13 +940,17 @@
       ' · 共 ' + dates.length + ' 根 · 红涨绿跌';
   }
 
-  function renderSpread(rows, accent) {    var dy = [], y10 = [], sp = [];
+  function renderSpread(rows, accent) {
+    var dy = [], y10 = [], u10 = [], sp = [], spUs = [], cnUs = [];
     var lookup = {};
     rows.forEach(function (r) {
       lookup[r.date] = r;
       if (r.dy != null) dy.push([r.date, r.dy]);
       if (r.y10 != null) y10.push([r.date, r.y10]);
+      if (r.us10 != null) u10.push([r.date, r.us10]);
       if (r.spread != null) sp.push([r.date, r.spread]);
+      if (r.spreadUs != null) spUs.push([r.date, r.spreadUs]);
+      if (r.cnUs != null) cnUs.push([r.date, r.cnUs]);
     });
 
     function dateKey(ts) {
@@ -945,8 +965,8 @@
         textStyle: { color: '#64748b', fontSize: 11.5 }
       },
       grid: [
-        { left: 52, right: 16, top: 34, height: '40%' },
-        { left: 52, right: 16, top: '68%', height: '18%' }
+        { left: 52, right: 16, top: 34, height: '36%' },
+        { left: 52, right: 16, top: '60%', height: '26%' }
       ],
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       tooltip: baseTooltip(function (params) {
@@ -961,7 +981,13 @@
             '<b style="font-variant-numeric:tabular-nums">' + (val == null ? '--' : val.toFixed(2) + '%') + '</b></div>';
         };
         return '<div style="font-weight:600;margin-bottom:6px">' + key + '</div>' +
-          line('股息率', r.dy, accent) + line('10年期国债', r.y10, '#94a3b8') + line('利差', r.spread, '#7c3aed');
+          line('股息率', r.dy, accent) +
+          line('中国10年期国债', r.y10, '#94a3b8') +
+          line('美国10年期国债', r.us10, '#f87171') +
+          '<div style="border-top:1px solid rgba(148,163,184,.25);margin:5px 0"></div>' +
+          line('股息率 − 中债', r.spread, '#7c3aed') +
+          line('股息率 − 美债', r.spreadUs, '#0ea5e9') +
+          line('中债 − 美债', r.cnUs, '#f59e0b');
       }),
       xAxis: [
         Object.assign(timeAxis(), { gridIndex: 0, axisLabel: { show: false } }),
@@ -974,9 +1000,9 @@
           splitLine: { lineStyle: { color: SPLIT_LINE } }
         },
         {
-          type: 'value', scale: true, gridIndex: 1, splitNumber: 2,
+          type: 'value', scale: true, gridIndex: 1, splitNumber: 3,
           axisLabel: { color: '#a78bfa', fontSize: 10, formatter: '{value}%' },
-          splitLine: { show: false }
+          splitLine: { lineStyle: { color: SPLIT_LINE, opacity: .6 } }
         }
       ],
       series: [
@@ -986,20 +1012,31 @@
           lineStyle: { width: 2.1, color: accent }, itemStyle: { color: accent }, z: 3
         },
         {
-          name: '10年期国债', type: 'line', data: y10, xAxisIndex: 0, yAxisIndex: 0,
+          name: '中国10Y', type: 'line', data: y10, xAxisIndex: 0, yAxisIndex: 0,
           showSymbol: false, sampling: 'lttb',
-          lineStyle: { width: 1.6, color: '#94a3b8', type: 'dashed' }, itemStyle: { color: '#94a3b8' }, z: 2
+          lineStyle: { width: 1.5, color: '#94a3b8', type: 'dashed' }, itemStyle: { color: '#94a3b8' }, z: 2
         },
         {
-          name: '利差', type: 'line', data: sp, xAxisIndex: 1, yAxisIndex: 1,
+          name: '美国10Y', type: 'line', data: u10, xAxisIndex: 0, yAxisIndex: 0,
           showSymbol: false, sampling: 'lttb',
-          lineStyle: { width: 1.2, color: '#7c3aed' }, itemStyle: { color: '#7c3aed' },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: hexA('#7c3aed', .30) },
-              { offset: 1, color: hexA('#7c3aed', .02) }
-            ])
-          },
+          lineStyle: { width: 1.5, color: '#f87171', type: 'dashed' }, itemStyle: { color: '#f87171' }, z: 2
+        },
+        {
+          name: '股息率−中债', type: 'line', data: sp, xAxisIndex: 1, yAxisIndex: 1,
+          showSymbol: false, sampling: 'lttb',
+          lineStyle: { width: 1.5, color: '#7c3aed' }, itemStyle: { color: '#7c3aed' },
+          z: 3
+        },
+        {
+          name: '股息率−美债', type: 'line', data: spUs, xAxisIndex: 1, yAxisIndex: 1,
+          showSymbol: false, sampling: 'lttb',
+          lineStyle: { width: 1.5, color: '#0ea5e9' }, itemStyle: { color: '#0ea5e9' },
+          z: 2
+        },
+        {
+          name: '中债−美债', type: 'line', data: cnUs, xAxisIndex: 1, yAxisIndex: 1,
+          showSymbol: false, sampling: 'lttb',
+          lineStyle: { width: 1.5, color: '#f59e0b' }, itemStyle: { color: '#f59e0b' },
           markLine: {
             symbol: 'none', silent: true, animation: false,
             data: [{ yAxis: 0, lineStyle: { color: '#cbd5e1', width: 1 }, label: { show: false } }]
