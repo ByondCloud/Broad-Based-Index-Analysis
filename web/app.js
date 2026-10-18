@@ -868,6 +868,10 @@
           var prev = p.dataIndex > 0 ? view[p.dataIndex - 1][4] : r[1];
           var chg = (r[4] - prev) / prev * 100;
           var color = chg >= 0 ? '#fb7185' : '#4ade80';
+          // 以所选区间第一个交易日的收盘价为 0%，计算累计涨跌
+          var base = view[0][4];
+          var cum = (r[4] / base - 1) * 100;
+          var cumColor = cum >= 0 ? '#fb7185' : '#4ade80';
           var row = function (k, v) {
             return '<div style="display:flex;justify-content:space-between;gap:22px;line-height:1.7">' +
               '<span style="color:#cbd5e1">' + k + '</span><b style="font-variant-numeric:tabular-nums">' + v + '</b></div>';
@@ -876,7 +880,11 @@
             row('开盘', r[1].toFixed(2)) + row('最高', r[2].toFixed(2)) +
             row('最低', r[3].toFixed(2)) + row('收盘', r[4].toFixed(2)) +
             row('涨跌幅', '<span style="color:' + color + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</span>') +
-            row('成交额', r[5].toFixed(0) + ' 亿');
+            row('成交额', r[5].toFixed(0) + ' 亿') +
+            '<div style="border-top:1px solid rgba(148,163,184,.25);margin:5px 0 4px"></div>' +
+            row('区间涨跌', '<span style="color:' + cumColor + '">' + (cum >= 0 ? '+' : '') + cum.toFixed(2) + '%</span>') +
+            '<div style="font-size:11px;color:#94a3b8;margin-top:3px">起点 ' + view[0][0] +
+            ' 收盘 ' + base.toFixed(2) + ' · 0%</div>';
         }
       },
       xAxis: [
