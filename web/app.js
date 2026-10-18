@@ -252,7 +252,7 @@
         '" style="--tab-accent:' + (INDEX_COLORS[idx.code] || '#2563eb') + '">' +
         '<span class="dot"></span>' +
         '<span><span class="it-name">' + idx.name + '</span><br><span class="it-code">' + idx.code + '</span></span>' +
-        '<span class="it-pe">PE(TTM)<b>' + fmt(last.pe, metricCfg('pe')) + '</b></span>' +
+        '<span class="it-pe">收盘<b>' + fmt(last.close, metricCfg('pe')) + '</b></span>' +
         '</div>';
     }).join('');
 
