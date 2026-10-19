@@ -1,9 +1,10 @@
 @echo off
-chcp 65001 >nul
+setlocal
 cd /d "%~dp0"
 if exist "web\index.html" (
   start "" "web\index.html"
 ) else (
-  echo 未找到 web\index.html，请确认目录完整。
+  echo [ERROR] web\index.html not found. Please check the folder.
+  echo.
   pause
 )
