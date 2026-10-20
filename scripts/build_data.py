@@ -33,15 +33,16 @@ TREASURY_URL = (
     "&pageNumber={page}&pageSize=5000&source=WEB&client=WEB"
 )
 TREASURY_FIELD = "EMM00166466"  # 中国国债收益率 10 年
+US_TREASURY_FIELD = "EMG00001310"  # 美国国债收益率 10 年（同一张表）
 
 
-def http_get(url, retries=4, timeout=90):
+def http_get(url, retries=4, timeout=90, headers=None):
     """带重试的 GET，返回原始 bytes。"""
     last = None
     for i in range(retries):
         try:
             return urllib.request.urlopen(
-                urllib.request.Request(url, headers=UA), timeout=timeout).read()
+                urllib.request.Request(url, headers=headers or UA), timeout=timeout).read()
         except Exception as exc:  # noqa: BLE001
             last = exc
             wait = 3 + 5 * i
@@ -107,44 +108,44 @@ def fetch_us10():
     return [r for r in data if r[0] >= "2017-01-01"]
 
 
-def fetch_markets(prev):
-    """海外市场：日经225（FRED 1949 起）+ 标普500（Yahoo 1970 起，失败回退 FRED 近10年）。
-    两者都拿不到时，沿用上一次 app-data.js 里的数据。"""
-    markets = []
-    prev_map = {m["code"]: m for m in (prev.get("markets") or [])}
-
-    try:
-        nikkei = fetch_fred("NIKKEI225")
-        markets.append({"code": "N225", "name": "日经225", "color": "#c0392b",
-                        "source": "FRED · NIKKEI225", "rows": nikkei})
-        print("    日经225 %d 个交易日，%s → %s" % (len(nikkei), nikkei[0][0], nikkei[-1][0]))
-    except Exception as exc:  # noqa: BLE001
-        if "N225" in prev_map:
-            markets.append(prev_map["N225"])
-            print("    !! 日经225 拉取失败（%s），沿用上次数据（截至 %s）"
-                  % (exc, prev_map["N225"]["rows"][-1][0]))
-        else:
-            raise
-
-    try:
-        spx = fetch_yahoo("%5EGSPC")
-        source = "Yahoo Finance · ^GSPC"
-    except Exception as exc:  # noqa: BLE001
-        print("    Yahoo 失败（%s），尝试 FRED SP500" % exc)
+def _one_market(code, name, color, em_secid, fallbacks, prev_map):
+    """按顺序尝试各个数据源，全部失败时沿用上次数据。"""
+    chain = []
+    if em_secid:
+        chain.append(("Eastmoney", lambda: fetch_em_kline(em_secid)))
+    chain.extend(fallbacks)
+    for label, fn in chain:
         try:
-            spx = fetch_fred("SP500")
-            source = "FRED · SP500"
-        except Exception as exc2:  # noqa: BLE001
-            if "SPX" in prev_map:
-                markets.append(prev_map["SPX"])
-                print("    !! 标普500 拉取失败（%s），沿用上次数据（截至 %s）"
-                      % (exc2, prev_map["SPX"]["rows"][-1][0]))
-                return markets
-            raise
-    markets.append({"code": "SPX", "name": "标普500", "color": "#1d4ed8",
-                    "source": source, "rows": spx})
-    print("    标普500 %d 个交易日，%s → %s（%s）" % (len(spx), spx[0][0], spx[-1][0], source))
-    return markets
+            rows = fn()
+            if len(rows) < 1000:
+                raise RuntimeError("%s 返回数据过少（%d 条）" % (label, len(rows)))
+            print("    %s %d 个交易日，%s → %s（%s）"
+                  % (name, len(rows), rows[0][0], rows[-1][0], label))
+            return {"code": code, "name": name, "color": color,
+                    "source": label, "rows": rows}
+        except Exception as exc:  # noqa: BLE001
+            print("    %s 用 %s 失败：%s" % (name, label, exc))
+    if code in prev_map:
+        print("    !! %s 全部来源失败，沿用上次数据（截至 %s）"
+              % (name, prev_map[code]["rows"][-1][0]))
+        return prev_map[code]
+    raise RuntimeError("%s 所有来源都失败" % name)
+
+
+def fetch_markets(prev):
+    """海外市场：Yahoo（最快最稳）→ FRED → 沿用上次数据。
+
+    注：东财 push2his 的海外指数接口在本机长期连接被重置，已不采用。
+    """
+    prev_map = {m["code"]: m for m in (prev.get("markets") or [])}
+    return [
+        _one_market("N225", "日经225", "#c0392b", None,
+                    [("Yahoo", lambda: fetch_yahoo("%5EN225")),
+                     ("FRED", lambda: fetch_fred("NIKKEI225"))], prev_map),
+        _one_market("SPX", "标普500", "#1d4ed8", None,
+                    [("Yahoo", lambda: fetch_yahoo("%5EGSPC")),
+                     ("FRED", lambda: fetch_fred("SP500"))], prev_map),
+    ]
 
 
 def fetch_index_ohlc(code):
@@ -168,7 +169,12 @@ def fetch_index_ohlc(code):
 
 
 def fetch_treasury():
-    rows = {}
+    """一次请求同时拿中国和美国 10 年期国债收益率（东财「中美国债收益率」表）。
+
+    中国 10Y = EMM00166466，美国 10Y = EMG00001310。
+    美债通常比中债晚一天发布，缺失的日期直接跳过，前端按「最近一个已知值」取值。
+    """
+    cn, us = {}, {}
     page = 1
     while True:
         payload = json.loads(http_get(TREASURY_URL.format(page=page)))
@@ -178,13 +184,44 @@ def fetch_treasury():
             break
         for r in data:
             d = (r.get("SOLAR_DATE") or "")[:10]
+            if not d:
+                continue
             v = r.get(TREASURY_FIELD)
-            if d and v is not None:
-                rows[d] = round(float(v), 4)
+            if v is not None:
+                cn[d] = round(float(v), 4)
+            u = r.get(US_TREASURY_FIELD)
+            if u is not None:
+                us[d] = round(float(u), 4)
         if page >= (result.get("pages") or 1):
             break
         page += 1
-    return [[d, rows[d]] for d in sorted(rows)]
+    return [[d, cn[d]] for d in sorted(cn)], [[d, us[d]] for d in sorted(us)]
+
+
+def fetch_em_kline(secid, retries=2):
+    """东财行情接口取海外指数日线（国内可访问，比 FRED/Yahoo 稳）。
+
+    返回 [[date, close], ...]
+    """
+    url = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=%s"
+           "&fields1=f1,f2,f3,f4,f5&fields2=f51,f52,f53,f54,f55,f56"
+           "&klt=101&fqt=1&beg=0&end=20500101&lmt=100000" % secid)
+    payload = json.loads(http_get(url, retries=retries,
+                                  headers={"User-Agent": "Mozilla/5.0",
+                                           "Referer": "https://quote.eastmoney.com/"}))
+    data = payload.get("data") or {}
+    out = []
+    for line in data.get("klines") or []:
+        p = line.split(",")
+        if len(p) < 3:
+            continue
+        try:
+            out.append([p[0], round(float(p[2]), 2)])   # 日期, 收盘
+        except ValueError:
+            continue
+    if not out:
+        raise RuntimeError("东财行情返回空数据：%s" % secid)
+    return out
 
 
 class DividendBook:
@@ -303,28 +340,36 @@ def main():
                         "rows": rows,
                         "ohlc": [[d] + k[d] for d in days]})
 
-    print("拉取 10 年期国债收益率 ...")
+    print("拉取 10 年期国债收益率（中国 + 美国）...")
+    us10_em = []
     try:
-        bonds = fetch_treasury()
-        print("    %d 条，%s → %s" % (len(bonds), bonds[0][0], bonds[-1][0]))
+        bonds, us10_em = fetch_treasury()
+        print("    中国 %d 条，%s → %s" % (len(bonds), bonds[0][0], bonds[-1][0]))
+        if us10_em:
+            print("    美国 %d 条，%s → %s" % (len(us10_em), us10_em[0][0], us10_em[-1][0]))
     except Exception as exc:  # noqa: BLE001
         if not prev.get("bonds"):
             raise
         bonds = prev["bonds"]
+        us10_em = prev.get("us10") or []
         print("    !! 国债收益率拉取失败（%s），沿用上次数据（截至 %s）" % (exc, bonds[-1][0]))
 
     print("拉取海外市场点位 ...")
     markets = fetch_markets(prev)
 
-    print("拉取美债 10 年期收益率 ...")
-    try:
-        us10 = fetch_us10()
-        print("    %d 条，%s → %s" % (len(us10), us10[0][0], us10[-1][0]))
-    except Exception as exc:  # noqa: BLE001
-        if not prev.get("us10"):
-            raise
-        us10 = prev["us10"]
-        print("    !! 美债收益率拉取失败（%s），沿用上次数据（截至 %s）" % (exc, us10[-1][0]))
+    us10 = [r for r in us10_em if r[0] >= "2017-01-01"]
+    if not us10:
+        print("美债收益率（东财）缺失，回退 FRED ...")
+        try:
+            us10 = fetch_us10()
+            print("    %d 条，%s → %s" % (len(us10), us10[0][0], us10[-1][0]))
+        except Exception as exc:  # noqa: BLE001
+            if not prev.get("us10"):
+                raise
+            us10 = prev["us10"]
+            print("    !! 美债收益率拉取失败（%s），沿用上次数据（截至 %s）" % (exc, us10[-1][0]))
+    else:
+        print("美债 10 年期：%d 条（东财），%s → %s" % (len(us10), us10[0][0], us10[-1][0]))
 
     latest = max(r[-1][0] for r in (i["rows"] for i in indices))
     payload = {
