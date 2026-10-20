@@ -2,9 +2,10 @@ name: 每日更新估值并按 gh-pages 发布
 
 on:
   schedule:
-    # 主更新：每个交易日（周一至周五）北京时间 21:13 = UTC 13:13。
-    # 刻意避开整点：GitHub 调度器在 :00 最拥堵，延迟可达 30-60 分钟甚至更久。
-    - cron: '13 13 * * 1-5'
+    # 主更新：每个交易日（周一至周五）北京时间 18:30 = UTC 10:30。
+    # 收盘 15:00，东财估值通常 16:00-17:00 后陆续更新；18:30 起跑，
+    # 若数据源还没发布，workflow 会等 20 分钟再抓一次（见 check_fresh 步骤）。
+    - cron: '30 10 * * 1-5'
     # 补跑：北京时间 08:07 = UTC 00:07，周二至周六，覆盖前一交易日。
     - cron: '7 0 * * 2-6'
   workflow_dispatch:
@@ -38,14 +39,31 @@ jobs:
             echo "::group::第 $attempt 次尝试"
             if python scripts/fetch_data.py; then
               echo "::endgroup::"
-              exit 0
+              break
             fi
             echo "::endgroup::"
             echo "第 $attempt 次失败，等 60 秒后重试（境外访问国内数据源偶发连接重置）"
             sleep 60
+            if [ "$attempt" = "3" ]; then
+              echo "::error::三次尝试均失败"
+              exit 1
+            fi
           done
-          echo "::error::三次尝试均失败"
-          exit 1
+
+      - name: 检查数据是否已更新到最近交易日
+        run: |
+          # 东财的个股估值不一定在收盘后立刻发布；没更新就等 20 分钟再抓一次。
+          if python scripts/check_fresh.py; then
+            exit 0
+          fi
+          echo "::warning::数据源尚未发布最新交易日的数据，20 分钟后重试一次"
+          sleep 1200
+          python scripts/fetch_data.py || true
+          if python scripts/check_fresh.py; then
+            echo "重试后已拿到最新交易日数据"
+          else
+            echo "::warning::仍未拿到最新交易日数据（可能是节假日），按现有数据发布"
+          fi
 
       - name: 数据健康检查
         run: python scripts/check_data.py
