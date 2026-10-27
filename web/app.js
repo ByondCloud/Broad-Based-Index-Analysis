@@ -82,6 +82,11 @@
   // 支持通过地址栏 hash 直达某个视图，例如 #000510.SH/10/pb 或 #N225/1989-12-29/2026-10-16
   (function readHash() {
     var parts = (location.hash || '').replace(/^#/, '').split('/');
+    if (parts[0] === 'GOLD') {
+      state.index = 'GOLD';
+      if (parts[1]) state.range = parts[1] === 'all' ? 'all' : (+parts[1] || state.range);
+      return;
+    }
     var mk = marketOf(parts[0]);
     if (mk) {
       state.index = mk.code;
@@ -265,6 +270,16 @@
         '<span class="it-pe">收盘<b>' + fmt(last[1], metricCfg('pe')) + '</b></span>' +
         '</div>';
     });
+
+    if (DATA.gold && DATA.gold.rows && DATA.gold.rows.length) {
+      var gl = DATA.gold.rows[DATA.gold.rows.length - 1];
+      html += '<div class="index-tab' + (state.index === GOLD_CODE ? ' on' : '') + '" data-code="' + GOLD_CODE +
+        '" style="--tab-accent:' + GOLD_COLOR + '">' +
+        '<span class="dot"></span>' +
+        '<span><span class="it-name">黄金ETF</span><br><span class="it-code">518880</span></span>' +
+        '<span class="it-pe">收盘<b>' + gl[4].toFixed(3) + '</b></span>' +
+        '</div>';
+    }
     elIndexTabs.innerHTML = html;
   }
 
@@ -1317,11 +1332,389 @@
     charts.market.resize();
   }
 
+  /* ---------------- 黄金 ETF 518880 ---------------- */
+  var GOLD_CODE = 'GOLD';
+  var GOLD_COLOR = '#d4a017';
+  var goldCache = null;
+
+  function goldSeries() {
+    if (goldCache) return goldCache;
+    var g = DATA.gold;
+    if (!g || !g.rows || !g.rows.length) return (goldCache = []);
+    var hs = {};
+    (SERIES['000300.SH'] || []).forEach(function (r) { hs[r.date] = r.close; });
+    var cpi = (g.cpi || []).map(function (r) { return { d: r[0], lvl: r[1], yoy: r[2] }; });
+    var tips = g.tips || [];
+    function lastAt(arr, date, isCpi) {
+      var lo = 0, hi = arr.length - 1, ans = -1;
+      while (lo <= hi) {
+        var mid = (lo + hi) >> 1;
+        var key = isCpi ? arr[mid].d : arr[mid][0];
+        if (key <= date) { ans = mid; lo = mid + 1; } else { hi = mid - 1; }
+      }
+      return ans >= 0 ? arr[ans] : null;
+    }
+    goldCache = g.rows.map(function (r) {
+      var c = lastAt(cpi, r[0], true);
+      var t = lastAt(tips, r[0], false);
+      return {
+        date: r[0], o: r[1], h: r[2], l: r[3], c: r[4], vol: r[5],
+        ratio: hs[r[0]] ? +(r[4] / hs[r[0]] * 1000).toFixed(4) : null,
+        real: (c && c.lvl) ? +(r[4] / c.lvl * 100).toFixed(4) : null,
+        cpiYoy: c ? c.yoy : null,
+        tips: t ? t[1] : null
+      };
+    });
+    return goldCache;
+  }
+
+  function goldRowsFor(range) {
+    var all = goldSeries();
+    if (!all.length) return [];
+    if (range === 'all') return all;
+    var cut = shiftYears(all[all.length - 1].date, range);
+    var i = 0;
+    while (i < all.length && all[i].date < cut) i++;
+    return all.slice(i);
+  }
+
+  function pctOf(rows, key) {
+    var vals = [];
+    for (var i = 0; i < rows.length; i++) {
+      var v = rows[i][key];
+      if (v != null) vals.push(v);
+    }
+    if (!vals.length) return null;
+    vals.sort(function (a, b) { return a - b; });
+    var cur = null;
+    for (var j = rows.length - 1; j >= 0; j--) {
+      if (rows[j][key] != null) { cur = rows[j][key]; break; }
+    }
+    if (cur == null) return null;
+    var sum = 0;
+    for (var k = 0; k < vals.length; k++) sum += vals[k];
+    return { pct: percentile(vals, cur), cur: cur, min: vals[0], max: vals[vals.length - 1], mean: sum / vals.length };
+  }
+
+  function goldScore(rows) {
+    var a = pctOf(rows, 'ratio'), b = pctOf(rows, 'real');
+    var c = pctOf(rows, 'tips'), d = pctOf(rows, 'c');
+    if (!a || !b || !c || !d) return null;
+    return {
+      ratioPct: a.pct, realPct: b.pct, tipsPct: c.pct, pricePct: d.pct,
+      score: 0.35 * (100 - a.pct) + 0.30 * (100 - b.pct) + 0.20 * (100 - c.pct) + 0.15 * (100 - d.pct)
+    };
+  }
+
+  function goldJudge(p) {
+    if (p <= 20) return { label: '很便宜', tone: 'tone-good' };
+    if (p <= 40) return { label: '偏便宜', tone: 'tone-good' };
+    if (p <= 60) return { label: '中性', tone: 'tone-mid' };
+    if (p <= 80) return { label: '偏贵', tone: 'tone-warn' };
+    return { label: '很贵', tone: 'tone-bad' };
+  }
+
+  function goldKpiCard(name, value, unit, pct, note, hint, invert) {
+    // invert = 该指标「越高对黄金越不利」（如实际利率），分位高 → 环境偏贵
+    var j = pct == null ? { label: '--', tone: 'tone-mid' } : goldJudge(pct);
+    var grad = invert
+      ? 'linear-gradient(90deg,#34d399,#93c5fd 45%,#fca5a5)'
+      : 'linear-gradient(90deg,#fca5a5,#93c5fd 55%,#34d399)';
+    return '<div class="kpi">' +
+      '<div class="kpi-top"><span class="kpi-name">' + name + '</span>' +
+      '<span class="badge ' + j.tone + '">' + j.label + '</span></div>' +
+      '<div class="kpi-value">' + value + (unit ? '<span class="unit">' + unit + '</span>' : '') + '</div>' +
+      '<div class="kpi-meta">区间分位 <b>' + (pct == null ? '--' : pct.toFixed(1) + '%') + '</b>' +
+      '<span>· ' + note + '</span></div>' +
+      '<div class="pct-track"><div class="pct-fill" style="width:' + (pct == null ? 0 : pct) +
+      '%;background:' + grad + '"></div><div class="pct-dot" style="left:' + (pct == null ? 0 : pct) + '%"></div></div>' +
+      '<div class="kpi-range"><span>' + hint + '</span></div>' +
+      '</div>';
+  }
+
+  function renderGold() {
+    var all = goldSeries();
+    if (!all.length) return;
+    var rows = goldRowsFor(state.range);
+    var last = rows[rows.length - 1];
+    var s = goldScore(rows);
+    var rangeLabel = state.range === 'all' ? '全部历史' : '近' + state.range + '年';
+    document.getElementById('goldDate').textContent = last.date;
+
+    // 市场状态四象限
+    var hsIdx = DATA.indices.filter(function (i) { return i.code.indexOf('000300') === 0; })[0];
+    var aS = hsIdx ? scoreOf(hsIdx, state.range) : null;
+    var q = 0;
+    if (s && aS) {
+      var goldStrong = s.ratioPct >= 50;
+      var stockCheap = aS.score >= 50;
+      q = goldStrong ? (stockCheap ? 2 : 1) : (stockCheap ? 4 : 3);
+    }
+    var QUAD_TEXT = {
+      1: '金强股贵：资金在避险，但 A 股并不便宜——现金和黄金比股票更有吸引力。',
+      2: '金强股便宜：典型的「恐慌底部」形态，黄金先走强、股票被错杀，历史上这是最好的买点区域。',
+      3: '金弱股贵：风险偏好很高，黄金被抛弃、股票被追高——需要警惕过热。',
+      4: '金弱股便宜：股金双弱，通常是流动性收缩或通缩环境，钱既不敢进股市也没进黄金。'
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('.gold-cell'), function (el) {
+      el.classList.toggle('on', +el.dataset.q === q);
+    });
+    document.getElementById('goldStatusNote').textContent =
+      '金股比价分位 ' + (s ? s.ratioPct.toFixed(1) : '--') + '% · A股综合分 ' + (aS ? aS.score.toFixed(1) : '--');
+    document.getElementById('goldStatusLine').textContent = q ? QUAD_TEXT[q] : '--';
+
+    // 分数卡
+    if (s) {
+      document.getElementById('goldScore').textContent = s.score.toFixed(1);
+      document.getElementById('goldMult').textContent = '×' + multFor(s.score).toFixed(1);
+      document.getElementById('goldScoreJudge').textContent =
+        s.score >= 60 ? '黄金偏便宜' : s.score >= 45 ? '中性' : '黄金偏贵';
+      document.getElementById('goldHint').innerHTML =
+        '权重：金股比价 35% · 实际金价 30% · 实际利率 20% · 金价 15%；<b>不设止盈线</b>，仅作参考';
+    } else {
+      document.getElementById('goldScore').textContent = '--';
+      document.getElementById('goldMult').textContent = '--';
+    }
+
+    document.getElementById('goldRows').innerHTML = RANGES.map(function (r) {
+      var ss = goldScore(goldRowsFor(r.key));
+      var on = String(r.key) === String(state.range) ? ' class="on"' : '';
+      if (!ss) return '<tr' + on + '><td>' + r.label + '</td><td class="num">--</td><td class="num">--</td><td class="num">--</td><td class="num">--</td></tr>';
+      return '<tr' + on + '><td>' + r.label + '</td>' +
+        '<td class="num">' + ss.ratioPct.toFixed(1) + '%</td>' +
+        '<td class="num">' + ss.realPct.toFixed(1) + '%</td>' +
+        '<td class="num">' + ss.tipsPct.toFixed(1) + '%</td>' +
+        '<td class="num">' + ss.score.toFixed(1) + '</td></tr>';
+    }).join('');
+
+    // KPI
+    var pRatio = pctOf(rows, 'ratio'), pReal = pctOf(rows, 'real');
+    var pTips = pctOf(rows, 'tips'), pPrice = pctOf(rows, 'c');
+    document.getElementById('goldKpis').innerHTML =
+      goldKpiCard('黄金 ETF 518880', last.c.toFixed(3), ' 元', pPrice ? pPrice.pct : null,
+        '均价 ' + (pPrice ? pPrice.mean.toFixed(2) : '--'),
+        '区间 ' + (pPrice ? pPrice.min.toFixed(2) + ' – ' + pPrice.max.toFixed(2) : '--')) +
+      goldKpiCard('实际金价（扣除 CPI）', pReal ? pReal.cur.toFixed(1) : '--', '', pReal ? pReal.pct : null,
+        '均价 ' + (pReal ? pReal.mean.toFixed(1) : '--'),
+        '区间 ' + (pReal ? pReal.min.toFixed(1) + ' – ' + pReal.max.toFixed(1) : '--')) +
+      goldKpiCard('10Y 实际利率（TIPS）', pTips ? pTips.cur.toFixed(2) : '--', '%', pTips ? pTips.pct : null,
+        '越高越压制金价', '区间 ' + (pTips ? pTips.min.toFixed(2) + ' – ' + pTips.max.toFixed(2) : '--'), true) +
+      goldKpiCard('金股比价（×1000）', pRatio ? pRatio.cur.toFixed(2) : '--', '', pRatio ? pRatio.pct : null,
+        '越高 = 市场越避险', '区间 ' + (pRatio ? pRatio.min.toFixed(2) + ' – ' + pRatio.max.toFixed(2) : '--'));
+
+    // 主图：金股比价 + 分位
+    var ratioVals = rows.map(function (r) { return r.ratio; }).filter(function (v) { return v != null; })
+      .sort(function (a, b) { return a - b; });
+    var ratioData = rows.map(function (r) { return [r.date, r.ratio]; });
+    var pctData = rows.map(function (r) {
+      return [r.date, r.ratio == null ? null : percentile(ratioVals, r.ratio)];
+    });
+    if (!charts.goldMain) charts.goldMain = echarts.init(document.getElementById('goldMainChart'));
+    charts.goldMain.setOption({
+      animationDuration: 400,
+      legend: { show: true, top: 0, right: 0, itemWidth: 12, itemHeight: 8, textStyle: { color: '#64748b', fontSize: 11.5 } },
+      grid: { left: 56, right: 56, top: 34, bottom: 34 },
+      tooltip: baseTooltip(function (params) {
+        if (!params.length) return '';
+        var out = '<div style="font-weight:600;margin-bottom:4px">' + params[0].axisValueLabel + '</div>';
+        params.forEach(function (p) {
+          if (p.value == null) return;
+          var v = Array.isArray(p.value) ? p.value[1] : p.value;
+          if (v == null) return;
+          out += '<div style="display:flex;justify-content:space-between;gap:18px"><span style="color:#cbd5e1">' +
+            p.marker + p.seriesName + '</span><b>' +
+            (p.seriesName === '分位' ? v.toFixed(1) + '%' : v.toFixed(2)) + '</b></div>';
+        });
+        return out;
+      }),
+      xAxis: timeAxis(rows.map(function (r) { return r.date; })),
+      yAxis: [
+        { type: 'value', scale: true, position: 'left',
+          axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: function (v) { return v.toFixed(2); } },
+          splitLine: { lineStyle: { color: SPLIT_LINE } } },
+        { type: 'value', min: 0, max: 100, position: 'right',
+          axisLabel: { color: '#f59e0b', fontSize: 10, formatter: '{value}%' }, splitLine: { show: false } }
+      ],
+      series: [
+        { name: '金股比价', type: 'line', data: ratioData, yAxisIndex: 0, showSymbol: false, sampling: 'lttb',
+          lineStyle: { width: 2, color: GOLD_COLOR }, itemStyle: { color: GOLD_COLOR },
+          areaStyle: { color: hexA(GOLD_COLOR, .10) } },
+        { name: '分位', type: 'line', data: pctData, yAxisIndex: 1, showSymbol: false, sampling: 'lttb',
+          lineStyle: { width: 1.2, color: '#f59e0b', type: 'dashed' }, itemStyle: { color: '#f59e0b' },
+          markLine: { symbol: 'none', silent: true, animation: false, label: { show: false },
+            data: [{ yAxis: 80, lineStyle: { color: '#fca5a5', type: 'dashed', width: 1 } },
+                   { yAxis: 20, lineStyle: { color: '#86efac', type: 'dashed', width: 1 } }] } }
+      ]
+    }, true);
+    document.getElementById('goldMainNote').innerHTML =
+      rangeLabel + ' · 当前比价 ' + (pRatio ? pRatio.cur.toFixed(2) : '--') +
+      ' · 分位 <b>' + (pRatio ? pRatio.pct.toFixed(1) + '%' : '--') + '</b>';
+
+    // 日 K
+    var closes = all.map(function (r) { return r.c; });
+    var ma20All = movingAverage(closes, 20), ma60All = movingAverage(closes, 60);
+    var startIdx = all.length - rows.length;
+    var candles = rows.map(function (r) { return [r.o, r.c, r.l, r.h]; });
+    var vols = rows.map(function (r) { return { value: r.vol, itemStyle: { color: hexA(r.c >= r.o ? KUP : KDOWN, .55) } }; });
+    if (!charts.goldK) charts.goldK = echarts.init(document.getElementById('goldKline'));
+    charts.goldK.setOption({
+      animation: false,
+      legend: { show: true, top: 0, right: 8, itemWidth: 14, itemHeight: 2, textStyle: { color: '#64748b', fontSize: 11.5 }, data: ['MA20', 'MA60'] },
+      grid: [{ left: 56, right: 20, top: 24, height: '58%' }, { left: 56, right: 20, top: '73%', height: '16%' }],
+      tooltip: baseTooltip(function (params) {
+        var p = params[0];
+        if (!p) return '';
+        var r = rows[p.dataIndex];
+        if (!r) return '';
+        var prev = p.dataIndex > 0 ? rows[p.dataIndex - 1].c : r.o;
+        var chg = (r.c - prev) / prev * 100;
+        var row = function (k, v) {
+          return '<div style="display:flex;justify-content:space-between;gap:22px;line-height:1.7"><span style="color:#cbd5e1">' + k + '</span><b>' + v + '</b></div>';
+        };
+        return '<div style="font-weight:600;margin-bottom:6px">' + r.date + '</div>' +
+          row('开', r.o.toFixed(3)) + row('高', r.h.toFixed(3)) + row('低', r.l.toFixed(3)) +
+          row('收', r.c.toFixed(3)) +
+          row('涨跌', '<span style="color:' + (chg >= 0 ? '#fb7185' : '#4ade80') + '">' +
+            (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</span>');
+      }),
+      xAxis: [
+        { type: 'category', data: rows.map(function (r) { return r.date; }), boundaryGap: true, axisLine: { lineStyle: { color: '#e2e8f0' } }, axisTick: { show: false }, axisLabel: { show: false }, splitLine: { show: false } },
+        { type: 'category', gridIndex: 1, data: rows.map(function (r) { return r.date; }), boundaryGap: true, axisLine: { lineStyle: { color: '#e2e8f0' } }, axisTick: { show: false },
+          axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: function (v) { return v.slice(0, 7); } }, splitLine: { show: false } }
+      ],
+      yAxis: [
+        { type: 'value', scale: true, gridIndex: 0, axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: SPLIT_LINE } } },
+        { type: 'value', gridIndex: 1, splitNumber: 2, axisLabel: { color: '#cbd5e1', fontSize: 10 }, splitLine: { show: false } }
+      ],
+      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100, minValueSpan: 20 }],
+      series: [
+        { name: '日K', type: 'candlestick', data: candles, xAxisIndex: 0, yAxisIndex: 0, z: 3,
+          itemStyle: { color: KUP, color0: KDOWN, borderColor: KUP, borderColor0: KDOWN } },
+        { name: 'MA20', type: 'line', data: ma20All.slice(startIdx), xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, smooth: true, lineStyle: { width: 1.2, color: '#f59e0b' }, itemStyle: { color: '#f59e0b' }, z: 4 },
+        { name: 'MA60', type: 'line', data: ma60All.slice(startIdx), xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, smooth: true, lineStyle: { width: 1.2, color: '#6366f1' }, itemStyle: { color: '#6366f1' }, z: 4 },
+        { name: '成交量', type: 'bar', data: vols, xAxisIndex: 1, yAxisIndex: 1, barWidth: '70%' }
+      ]
+    }, true);
+    document.getElementById('goldKlineNote').textContent =
+      '518880 · ' + rows[0].date + ' 至 ' + last.date + ' · 共 ' + rows.length + ' 根';
+
+    // 归一化 + 相关性
+    var baseGold = rows[0].c;
+    var hsMap = {};
+    (SERIES['000300.SH'] || []).forEach(function (r) { hsMap[r.date] = r.close; });
+    var baseHs = hsMap[rows[0].date] || rows[0].c;
+    var navGold = rows.map(function (r) { return [r.date, +(r.c / baseGold * 100).toFixed(2)]; });
+    var navHs = rows.filter(function (r) { return hsMap[r.date]; })
+      .map(function (r) { return [r.date, +(hsMap[r.date] / baseHs * 100).toFixed(2)]; });
+    if (!charts.goldNav) charts.goldNav = echarts.init(document.getElementById('goldNavChart'));
+    charts.goldNav.setOption({
+      animationDuration: 400,
+      legend: { show: true, top: 0, right: 0, itemWidth: 12, itemHeight: 8, textStyle: { color: '#64748b', fontSize: 11.5 } },
+      grid: { left: 46, right: 18, top: 30, bottom: 28 },
+      tooltip: baseTooltip(function (params) {
+        if (!params.length) return '';
+        var out = '<div style="font-weight:600;margin-bottom:4px">' + params[0].axisValueLabel + '</div>';
+        params.forEach(function (p) {
+          if (p.value == null) return;
+          var v = Array.isArray(p.value) ? p.value[1] : p.value;
+          out += '<div style="display:flex;justify-content:space-between;gap:18px"><span style="color:#cbd5e1">' +
+            p.marker + p.seriesName + '</span><b>' + v.toFixed(1) + '</b></div>';
+        });
+        return out;
+      }),
+      xAxis: timeAxis(rows.map(function (r) { return r.date; })),
+      yAxis: { type: 'value', scale: true, axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: SPLIT_LINE } } },
+      series: [
+        { name: '黄金 ETF', type: 'line', data: navGold, showSymbol: false, sampling: 'lttb', lineStyle: { width: 1.8, color: GOLD_COLOR }, itemStyle: { color: GOLD_COLOR } },
+        { name: '沪深300', type: 'line', data: navHs, showSymbol: false, sampling: 'lttb', lineStyle: { width: 1.5, color: '#2563eb' }, itemStyle: { color: '#2563eb' } }
+      ]
+    }, true);
+
+    var RET_WIN = 60;
+    var gret = [], hret = [], corr = [];
+    var prevG = null, prevH = null;
+    for (var i2 = 0; i2 < rows.length; i2++) {
+      var hsc = hsMap[rows[i2].date];
+      gret.push(prevG ? rows[i2].c / prevG - 1 : null);
+      hret.push((prevH && hsc) ? hsc / prevH - 1 : null);
+      prevG = rows[i2].c;
+      if (hsc) prevH = hsc;
+      if (i2 >= RET_WIN) {
+        var xs = gret.slice(i2 - RET_WIN + 1, i2 + 1), ys = hret.slice(i2 - RET_WIN + 1, i2 + 1);
+        var pairs = [];
+        for (var k2 = 0; k2 < xs.length; k2++) if (xs[k2] != null && ys[k2] != null) pairs.push([xs[k2], ys[k2]]);
+        if (pairs.length > 30) {
+          var mx = 0, my = 0;
+          pairs.forEach(function (p) { mx += p[0]; my += p[1]; });
+          mx /= pairs.length; my /= pairs.length;
+          var cov2 = 0, sx2 = 0, sy2 = 0;
+          pairs.forEach(function (p) { cov2 += (p[0] - mx) * (p[1] - my); sx2 += (p[0] - mx) * (p[0] - mx); sy2 += (p[1] - my) * (p[1] - my); });
+          corr.push([rows[i2].date, (sx2 && sy2) ? +(cov2 / Math.sqrt(sx2 * sy2)).toFixed(3) : null]);
+        }
+      }
+    }
+    if (!charts.goldCorr) charts.goldCorr = echarts.init(document.getElementById('goldCorrChart'));
+    charts.goldCorr.setOption({
+      animationDuration: 400,
+      grid: { left: 46, right: 18, top: 24, bottom: 28 },
+      tooltip: baseTooltip(function (params) {
+        if (!params.length || !params[0].value) return '';
+        var v = params[0].value[1];
+        if (v == null) return '';
+        return params[0].axisValueLabel + '<br>60 日相关性 <b>' + v.toFixed(2) + '</b>';
+      }),
+      xAxis: timeAxis(rows.map(function (r) { return r.date; })),
+      yAxis: { type: 'value', min: -1, max: 1, axisLabel: { color: AXIS_TEXT, fontSize: 10 }, splitLine: { lineStyle: { color: SPLIT_LINE } } },
+      series: [{
+        name: '相关性', type: 'line', data: corr, showSymbol: false, sampling: 'lttb',
+        lineStyle: { width: 1.6, color: '#0ea5e9' }, itemStyle: { color: '#0ea5e9' },
+        areaStyle: { color: hexA('#0ea5e9', .10) },
+        markLine: { symbol: 'none', silent: true, animation: false, label: { show: false },
+          data: [{ yAxis: 0, lineStyle: { color: '#cbd5e1', width: 1 } }] }
+      }]
+    }, true);
+
+    // 定投年化
+    var t0 = new Date(rows[0].date + 'T00:00:00').getTime();
+    var tEnd = new Date(last.date + 'T00:00:00').getTime();
+    var units = 0, flows = [], nBuy = 0;
+    for (var i3 = 0; i3 < rows.length; i3++) {
+      units += 10 / rows[i3].c;
+      nBuy++;
+      flows.push([(new Date(rows[i3].date + 'T00:00:00').getTime() - t0) / 86400000, -10]);
+    }
+    var endVal = units * last.c;
+    flows.push([(tEnd - t0) / 86400000, endVal]);
+    var irr = xirr(flows);
+    var simple = endVal / (nBuy * 10) - 1;
+    var days = Math.max(1, (tEnd - t0) / 86400000);
+    var bh = Math.pow(last.c / rows[0].c, 365 / days) - 1;
+    var sign = function (v) { return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; };
+    var signT = function (v) { return Math.abs(v) >= 10 ? (1 + v).toFixed(1) + ' 倍' : sign(v); };
+    var elIrr = document.getElementById('goldDcaIrr');
+    elIrr.textContent = sign(irr);
+    elIrr.className = 'nk-val ' + (irr >= 0 ? 'up' : 'down');
+    document.getElementById('goldDcaSub').textContent = '累计 ' + signT(simple) + ' · 投入 ' + nBuy + ' 次';
+    var elBh = document.getElementById('goldDcaBh');
+    elBh.textContent = sign(bh);
+    elBh.className = 'nk-val small ' + (bh >= 0 ? 'up' : 'down');
+    document.getElementById('goldDcaBhSub').textContent = '累计 ' + signT(last.c / rows[0].c - 1);
+    document.getElementById('goldDcaNote').textContent =
+      rows[0].date + ' ~ ' + last.date + ' · ' + rangeLabel + ' · 价格口径，未计费用';
+
+    ['goldMain', 'goldK', 'goldNav', 'goldCorr'].forEach(function (k) {
+      if (charts[k]) setTimeout(function () { charts[k].resize(); }, 30);
+    });
+  }
+
   function renderAll() {
     var mk = marketOf(state.index);
     var isMarket = !!mk;
+    var isGold = state.index === GOLD_CODE;
     document.body.classList.toggle('market-mode', isMarket);
+    document.body.classList.toggle('gold-mode', isGold);
     document.getElementById('nikkeiCard').hidden = !isMarket;
+    document.getElementById('goldView').hidden = !isGold;
 
     renderIndexTabs();
 
@@ -1338,6 +1731,18 @@
       Array.prototype.forEach.call(elStop.children, function (node) {
         node.classList.toggle('on', node.dataset.stop === state.stop);
       });
+    }
+
+    if (isGold) {
+      document.documentElement.style.setProperty('--accent', GOLD_COLOR);
+      document.documentElement.style.setProperty('--accent-soft', hexA(GOLD_COLOR, .12));
+      var gsub = document.querySelector('.brand-text .sub');
+      if (gsub) gsub.innerHTML = '黄金 ETF 518880 · 人民币计价 · 用黄金观察市场避险状态';
+      renderGold();
+      try {
+        history.replaceState(null, '', '#' + GOLD_CODE + '/' + state.range);
+      } catch (err) { /* ignore */ }
+      return;
     }
 
     if (isMarket) {

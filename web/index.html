@@ -58,6 +58,104 @@
     <div class="nk-note" id="nkNote">--</div>
   </section>
 
+  <section class="gold-view" id="goldView" hidden>
+
+    <section class="card gold-status">
+      <div class="card-head">
+        <h2>市场状态 · 避险温度计</h2>
+        <div class="card-note" id="goldStatusNote">--</div>
+      </div>
+      <div class="gold-quad">
+        <div class="gold-cell" data-q="1"><b>① 恐慌抛售</b><span>金强 · 股贵</span></div>
+        <div class="gold-cell" data-q="2"><b>② 恐慌底部</b><span>金强 · 股便宜</span></div>
+        <div class="gold-cell" data-q="4"><b>④ 流动性收缩</b><span>金弱 · 股便宜</span></div>
+        <div class="gold-cell" data-q="3"><b>③ 风险偏好过热</b><span>金弱 · 股贵</span></div>
+      </div>
+      <div class="gold-status-line" id="goldStatusLine">--</div>
+    </section>
+
+    <section class="card advice gold-advice">
+      <div class="advice-head">
+        <div class="advice-title-wrap">
+          <div class="advice-title">黄金 ETF 518880 · 参考打分</div>
+          <div class="advice-hint">仅作市场参考，不计入定投 · 数据 <b id="goldDate">--</b></div>
+        </div>
+        <div class="advice-stop-note" id="goldHint">--</div>
+      </div>
+      <div class="gold-score-row">
+        <div class="gold-score-box">
+          <div class="gold-score-label">当前分数</div>
+          <div class="gold-score" id="goldScore">--</div>
+          <div class="gold-score-sub" id="goldScoreJudge">--</div>
+        </div>
+        <div class="gold-score-box">
+          <div class="gold-score-label">参考倍数</div>
+          <div class="gold-mult" id="goldMult">--</div>
+          <div class="gold-score-sub">按现有加投表折算</div>
+        </div>
+        <table class="advice-table gold-table">
+          <thead><tr><th>区间</th><th>金股比价分位</th><th>实际金价分位</th><th>实际利率分位</th><th>综合分</th></tr></thead>
+          <tbody id="goldRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="kpis" id="goldKpis"></section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>金股比价（518880 ÷ 沪深300）</h2>
+        <div class="card-note" id="goldMainNote">--</div>
+      </div>
+      <div id="goldMainChart" class="chart chart-main"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>黄金 ETF 518880 · 日 K</h2>
+        <div class="card-note" id="goldKlineNote">--</div>
+      </div>
+      <div id="goldKline" class="chart chart-k"></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <h2>黄金 vs 沪深300（起点 = 100）</h2>
+          <div class="card-note">谁在跑赢</div>
+        </div>
+        <div id="goldNavChart" class="chart chart-sub"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>60 日滚动相关性</h2>
+          <div class="card-note">正 = 同涨同跌，负 = 避险跷跷板</div>
+        </div>
+        <div id="goldCorrChart" class="chart chart-sub"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>定投年化（每天 10 元）</h2>
+        <div class="card-note" id="goldDcaNote">--</div>
+      </div>
+      <div class="nk-result">
+        <div class="nk-block">
+          <div class="nk-label">定投年化收益</div>
+          <div class="nk-val" id="goldDcaIrr">--</div>
+          <div class="nk-sub" id="goldDcaSub">--</div>
+        </div>
+        <div class="nk-block">
+          <div class="nk-label">同期一次性买入</div>
+          <div class="nk-val small" id="goldDcaBh">--</div>
+          <div class="nk-sub" id="goldDcaBhSub">--</div>
+        </div>
+      </div>
+    </section>
+
+  </section>
+
   <section class="card advice a-share-only" id="adviceCard">
     <div class="advice-head">
       <div class="advice-title-wrap">

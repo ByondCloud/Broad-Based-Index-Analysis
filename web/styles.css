@@ -100,6 +100,61 @@ body {
 
 /* ---- 日经225 模式 ---- */
 body.market-mode .a-share-only { display: none !important; }
+body.gold-mode .a-share-only { display: none !important; }
+#goldView[hidden] { display: none !important; }
+body.gold-mode #goldView { display: block; }
+
+/* ---- 黄金页 ---- */
+.gold-status { margin-top: 0; }
+
+.gold-quad {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.gold-cell {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  transition: all .18s ease;
+}
+
+.gold-cell b { display: block; font-size: 13.5px; font-weight: 680; color: var(--ink); }
+.gold-cell span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.gold-cell.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 6px 18px -12px var(--accent); }
+.gold-cell.on b { color: var(--accent); }
+
+.gold-status-line {
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px dashed var(--line);
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.7;
+}
+
+.gold-score-row {
+  display: grid;
+  grid-template-columns: 180px 180px 1fr;
+  gap: 22px;
+  align-items: start;
+  padding-top: 14px;
+}
+
+.gold-score-box { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: #fff; }
+.gold-score-label { font-size: 12.5px; color: var(--muted); }
+.gold-score { font-size: 40px; font-weight: 760; letter-spacing: -1.2px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.gold-mult { font-size: 40px; font-weight: 760; letter-spacing: -1.2px; line-height: 1.15; color: var(--accent); font-variant-numeric: tabular-nums; }
+.gold-score-sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.gold-table th:first-child, .gold-table td:first-child { text-align: left; }
+
+@media (max-width: 720px) {
+  .gold-score-row { grid-template-columns: 1fr; gap: 14px; }
+  .gold-quad { grid-template-columns: 1fr; }
+}
 
 .card.nikkei { margin-top: 0; }
 

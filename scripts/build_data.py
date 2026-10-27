@@ -69,6 +69,67 @@ def fetch_fred(series):
     return out
 
 
+GOLD_SINA = ("https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+             "CN_MarketData.getKLineData?symbol=sh518880&scale=240&ma=no&datalen=4000")
+GOLD_EM = ("https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=1.518880"
+           "&fields1=f1,f2&fields2=f51,f52,f53,f54,f55,f56&klt=101&fqt=1&beg=0&end=20500101&lmt=100000")
+
+
+def fetch_gold():
+    """黄金 ETF 518880 日线（含 OHLC）→ [[date, open, high, low, close, volume], ...]
+
+    优先新浪（国内稳定，含 2013-07 上市以来全部数据），失败回退东财 push2his。
+    """
+    try:
+        raw = http_get(GOLD_SINA, retries=2,
+                       headers={"User-Agent": "Mozilla/5.0",
+                                "Referer": "https://finance.sina.com.cn"}).decode("utf-8", "replace")
+        arr = json.loads(raw)
+        out = []
+        for a in arr:
+            try:
+                out.append([a["day"], round(float(a["open"]), 4), round(float(a["high"]), 4),
+                            round(float(a["low"]), 4), round(float(a["close"]), 4),
+                            round(float(a.get("volume") or 0), 0)])
+            except (KeyError, TypeError, ValueError):
+                continue
+        out.sort(key=lambda x: x[0])
+        if len(out) > 1000:
+            return out, "新浪"
+    except Exception as exc:  # noqa: BLE001
+        print("    518880 新浪失败：%s，改用东财" % exc)
+
+    raw = http_get(GOLD_EM, retries=2,
+                   headers={"User-Agent": "Mozilla/5.0",
+                            "Referer": "https://quote.eastmoney.com/"}).decode("utf-8", "replace")
+    klines = ((json.loads(raw).get("data") or {}).get("klines")) or []
+    out = []
+    for line in klines:
+        p = line.split(",")
+        if len(p) < 5:
+            continue
+        try:      # 日期, 开, 收, 高, 低, 量
+            out.append([p[0], round(float(p[1]), 4), round(float(p[3]), 4),
+                        round(float(p[4]), 4), round(float(p[2]), 4),
+                        round(float(p[5] or 0), 0)])
+        except ValueError:
+            continue
+    out.sort(key=lambda x: x[0])
+    return out, "东财"
+
+
+def fetch_cpi_yoy():
+    """美国 CPI → [[date, 定基指数, 同比%], ...]（月频）"""
+    rows = fetch_fred("CPIAUCSL")
+    out = []
+    for i, (d, v) in enumerate(rows):
+        yoy = None
+        if i >= 12 and rows[i - 12][1]:
+            yoy = round((v / rows[i - 12][1] - 1) * 100, 2)
+        out.append([d, v, yoy])
+    return out
+
+
 def fetch_yahoo(symbol):
     """Yahoo Finance 全历史日线 → [[date, close], ...]"""
     url = ("https://query1.finance.yahoo.com/v8/finance/chart/%s"
@@ -371,6 +432,33 @@ def main():
     else:
         print("美债 10 年期：%d 条（东财），%s → %s" % (len(us10), us10[0][0], us10[-1][0]))
 
+    print("拉取黄金 ETF 518880 ...")
+    prev_gold = prev.get("gold") or {}
+    try:
+        gold_rows, gold_src = fetch_gold()
+        print("    %d 根，%s → %s（%s）"
+              % (len(gold_rows), gold_rows[0][0], gold_rows[-1][0], gold_src))
+    except Exception as exc:  # noqa: BLE001
+        if not prev_gold.get("rows"):
+            raise
+        gold_rows = prev_gold["rows"]
+        gold_src = prev_gold.get("source", "上次数据")
+        print("    !! 黄金拉取失败（%s），沿用上次数据（截至 %s）" % (exc, gold_rows[-1][0]))
+
+    print("拉取美国 CPI 与实际利率 ...")
+    try:
+        cpi = fetch_cpi_yoy()
+        print("    CPI 同比 %d 个月，%s → %s" % (len(cpi), cpi[0][0], cpi[-1][0]))
+    except Exception as exc:  # noqa: BLE001
+        cpi = prev_gold.get("cpi") or []
+        print("    !! CPI 拉取失败（%s），沿用上次数据" % exc)
+    try:
+        tips = [r for r in fetch_fred("DFII10") if r[0] >= "2013-01-01"]
+        print("    10Y 实际利率 %d 条，%s → %s" % (len(tips), tips[0][0], tips[-1][0]))
+    except Exception as exc:  # noqa: BLE001
+        tips = prev_gold.get("tips") or []
+        print("    !! 实际利率拉取失败（%s），沿用上次数据" % exc)
+
     latest = max(r[-1][0] for r in (i["rows"] for i in indices))
     payload = {
         "meta": {
@@ -383,14 +471,20 @@ def main():
                  "url": "https://www.csindex.com.cn"},
                 {"name": "东方财富·估值分析", "desc": "个股 PE(TTM)、PB、总市值、自由流通市值、收盘价",
                  "url": "https://data.eastmoney.com/gzfx/"},
-                {"name": "东方财富·分红送配 / 中美国债收益率", "desc": "个股分红、10 年期国债收益率",
+                {"name": "东方财富·分红送配 / 中美国债收益率", "desc": "个股分红、中美 10 年期国债收益率",
                  "url": "https://data.eastmoney.com/cjsj/zmgzsyl.html"},
+                {"name": "新浪财经 · 黄金 ETF 518880", "desc": "黄金 ETF 日线（含 OHLC）",
+                 "url": "https://finance.sina.com.cn"},
+                {"name": "FRED · DFII10 / CPIAUCSL", "desc": "美国 10 年期实际利率、CPI",
+                 "url": "https://fred.stlouisfed.org"},
             ],
         },
         "indices": indices,
         "bonds": bonds,
         "us10": us10,
         "markets": markets,
+        "gold": {"code": "518880", "name": "黄金ETF", "source": gold_src,
+                 "rows": gold_rows, "cpi": cpi, "tips": tips},
     }
     body = ("window.__VALUATION_DATA__ = "
             + json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + ";\n")
