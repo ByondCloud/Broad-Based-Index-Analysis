@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>指数估值看板 · 沪深300 / 中证A500</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">估</div>
+      <div class="brand-text">
+        <h1>指数估值看板<span class="brand-sub">PE · PB · 股息率 · 股息率利差分位</span><span class="risk-tag">⚠ 仅供研究参考，不构成投资建议</span></h1>
+        <p class="sub">沪深300 / 中证A500 · 自由流通市值加权 · 数据 <b id="dataStart">2018-01</b> 至 <b id="dataDate">--</b></p>
+      </div>
+    </div>
+    <div class="topbar-right a-share-only">
+      <div class="range-group" id="rangeGroup" role="group" aria-label="时间区间"></div>
+    </div>
+  </header>
+
+  <nav class="index-tabs" id="indexTabs" aria-label="指数选择"></nav>
+
+  <section class="card nikkei" id="nikkeiCard" hidden>
+    <div class="card-head">
+      <h2 id="nkTitle">日经225 · 定投年化</h2>
+      <div class="nk-range">
+        <span class="nk-group">
+          <input id="nkFromY" class="nk-part y" type="text" inputmode="numeric" maxlength="4" spellcheck="false" autocomplete="off" aria-label="起始年" placeholder="1989" /><i class="nk-unit">年</i>
+          <input id="nkFromM" class="nk-part m" type="text" inputmode="numeric" maxlength="2" spellcheck="false" autocomplete="off" aria-label="起始月" placeholder="12" /><i class="nk-unit">月</i>
+          <input id="nkFromD" class="nk-part d" type="text" inputmode="numeric" maxlength="2" spellcheck="false" autocomplete="off" aria-label="起始日" placeholder="29" /><i class="nk-unit">日</i>
+        </span>
+        <span class="nk-dash">—</span>
+        <span class="nk-group">
+          <input id="nkToY" class="nk-part y" type="text" inputmode="numeric" maxlength="4" spellcheck="false" autocomplete="off" aria-label="结束年" placeholder="2026" /><i class="nk-unit">年</i>
+          <input id="nkToM" class="nk-part m" type="text" inputmode="numeric" maxlength="2" spellcheck="false" autocomplete="off" aria-label="结束月" placeholder="10" /><i class="nk-unit">月</i>
+          <input id="nkToD" class="nk-part d" type="text" inputmode="numeric" maxlength="2" spellcheck="false" autocomplete="off" aria-label="结束日" placeholder="16" /><i class="nk-unit">日</i>
+        </span>
+      </div>
+    </div>
+    <div class="nk-range-note" id="nkRangeNote">数据范围 --</div>
+    <div id="nikkeiChart" class="chart chart-nk"></div>
+    <div class="nk-result">
+      <div class="nk-block">
+        <div class="nk-label">定投年化收益</div>
+        <div class="nk-val" id="nkIrr">--</div>
+        <div class="nk-sub" id="nkIrrSub">--</div>
+      </div>
+      <div class="nk-block">
+        <div class="nk-label">同期一次性买入</div>
+        <div class="nk-val small" id="nkBh">--</div>
+        <div class="nk-sub" id="nkBhSub">--</div>
+      </div>
+    </div>
+    <div class="nk-note" id="nkNote">--</div>
+  </section>
+
+  <section class="gold-view" id="goldView" hidden>
+
+    <section class="card gold-status">
+      <div class="card-head">
+        <h2>市场状态 · 避险温度计</h2>
+        <div class="card-note" id="goldStatusNote">--</div>
+      </div>
+      <div class="gold-quad">
+        <div class="gold-cell" data-q="1"><b>① 恐慌抛售</b><span>金强 · 股贵</span></div>
+        <div class="gold-cell" data-q="2"><b>② 恐慌底部</b><span>金强 · 股便宜</span></div>
+        <div class="gold-cell" data-q="4"><b>④ 流动性收缩</b><span>金弱 · 股便宜</span></div>
+        <div class="gold-cell" data-q="3"><b>③ 风险偏好过热</b><span>金弱 · 股贵</span></div>
+      </div>
+      <div class="gold-status-line" id="goldStatusLine">--</div>
+    </section>
+
+    <section class="card advice gold-advice">
+      <div class="advice-head">
+        <div class="advice-title-wrap">
+          <div class="advice-title">黄金 ETF 518880 · 参考打分</div>
+          <div class="advice-hint">仅作市场参考，不计入定投 · 数据 <b id="goldDate">--</b></div>
+        </div>
+        <div class="advice-stop-note" id="goldHint">--</div>
+      </div>
+      <div class="gold-score-row">
+        <div class="gold-score-box">
+          <div class="gold-score-label">当前分数</div>
+          <div class="gold-score" id="goldScore">--</div>
+          <div class="gold-score-sub" id="goldScoreJudge">--</div>
+        </div>
+        <div class="gold-score-box">
+          <div class="gold-score-label">参考倍数</div>
+          <div class="gold-mult" id="goldMult">--</div>
+          <div class="gold-score-sub">按现有加投表折算</div>
+        </div>
+        <table class="advice-table gold-table">
+          <thead><tr><th>区间</th><th>金股比价分位</th><th>实际金价分位</th><th>实际利率分位</th><th>综合分</th></tr></thead>
+          <tbody id="goldRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="kpis" id="goldKpis"></section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>金股比价（518880 ÷ 沪深300）</h2>
+        <div class="card-note" id="goldMainNote">--</div>
+      </div>
+      <div id="goldMainChart" class="chart chart-main"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>黄金 ETF 518880 · 日 K</h2>
+        <div class="card-note" id="goldKlineNote">--</div>
+      </div>
+      <div id="goldKline" class="chart chart-k"></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <h2>黄金 vs 沪深300（起点 = 100）</h2>
+          <div class="card-note">谁在跑赢</div>
+        </div>
+        <div id="goldNavChart" class="chart chart-sub"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>60 日滚动相关性</h2>
+          <div class="card-note">正 = 同涨同跌，负 = 避险跷跷板</div>
+        </div>
+        <div id="goldCorrChart" class="chart chart-sub"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>定投年化（每天 10 元）</h2>
+        <div class="card-note" id="goldDcaNote">--</div>
+      </div>
+      <div class="nk-result">
+        <div class="nk-block">
+          <div class="nk-label">定投年化收益</div>
+          <div class="nk-val" id="goldDcaIrr">--</div>
+          <div class="nk-sub" id="goldDcaSub">--</div>
+        </div>
+        <div class="nk-block">
+          <div class="nk-label">同期一次性买入</div>
+          <div class="nk-val small" id="goldDcaBh">--</div>
+          <div class="nk-sub" id="goldDcaBhSub">--</div>
+        </div>
+      </div>
+    </section>
+
+  </section>
+
+  <section class="card advice a-share-only" id="adviceCard">
+    <div class="advice-head">
+      <div class="advice-title-wrap">
+        <div class="advice-title">本周加投建议</div>
+        <div class="advice-hint">沪深300 / 中证A500 分开计算 · 数据 <b id="adviceDate">--</b></div>
+      </div>
+      <div class="advice-stop">
+        <span class="advice-hint">止盈线</span>
+        <div class="range-group mini" id="stopGroup"></div>
+        <div class="advice-stop-note" id="stopNote">--</div>
+      </div>
+      <label class="advice-base">每只指数基准
+        <input id="adviceBase" type="number" min="10" step="10" value="100" /> 元
+      </label>
+    </div>
+    <div class="advice-cols" id="adviceCols"></div>
+  </section>
+
+  <section class="kpis a-share-only" id="kpis"></section>
+
+  <section class="card a-share-only">
+    <div class="card-head">
+      <div class="metric-tabs" id="metricTabs" role="tablist"></div>
+      <div class="card-note" id="mainNote"></div>
+    </div>
+    <div id="mainChart" class="chart chart-main"></div>
+  </section>
+
+  <section class="card a-share-only">
+    <div class="card-head">
+      <h2>日 K 线</h2>
+      <div class="card-note" id="klineNote"></div>
+    </div>
+    <div id="klineChart" class="chart chart-k"></div>
+  </section>
+
+  <section class="grid-2 a-share-only">
+    <div class="card">
+      <div class="card-head">
+        <h2>股息率 vs 中美国债收益率</h2>
+        <div class="card-note">下轨：股息率−中债 / 股息率−美债 / 中债−美债</div>
+      </div>
+      <div id="spreadChart" class="chart chart-sub"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>股息率利差历史分位（中债利差）</h2>
+        <div class="card-note">每日「股息率 − 中国10Y」在所选区间内的分位（5 日平滑）</div>
+      </div>
+      <div id="pctChart" class="chart chart-sub"></div>
+    </div>
+  </section>
+
+  <section class="card a-share-only">
+    <div class="card-head">
+      <h2>利差分布与当前所处位置</h2>
+      <div class="card-note" id="distNote"></div>
+    </div>
+    <div id="distChart" class="chart chart-dist"></div>
+  </section>
+
+  <footer class="foot a-share-only">
+    <div class="foot-grid">
+      <div>
+        <h3>指标口径（自由流通市值加权）</h3>
+        <p><b>权重</b>：每只成分股按<b>自由流通市值</b>（非限售 A 股流通市值）占指数合计的比例加权。</p>
+        <p><b>PE(TTM)</b> = Σ自由流通市值 / Σ最近 12 个月归母净利润（亏损股的负净利润计入分母）；<b>PB</b> = Σ自由流通市值 / Σ最新归母净资产；<b>股息率</b> = Σ(自由流通市值 × 个股股息率) / Σ自由流通市值。</p>
+        <p><b>个股股息率</b> 采用<b>预案口径</b>：分红方案一经公告即计入，同一财报期只取最新一期（避免中期分红跨年重复），与理杏仁的“预期股息率”思路一致。</p>
+        <p><b>股息率利差</b> = 指数股息率 − 中国 10 年期国债到期收益率。<b>分位</b> = 所选区间内，当日数值小于等于该值的天数占比（0% 最低，100% 最高）。</p>
+        <p><b>综合分</b> = 0.3×(100−PE分位) + 0.2×(100−PB分位) + 0.5×利差分位；<b>止盈线</b>：综合分 ≤ 阈值时分数按 0 计、当周不加投（牛市极端 10 / 综合 30 / 熊市极端 45）。</p>
+      </div>
+      <div>
+        <h3>数据来源</h3>
+        <p id="sources"></p>
+        <p>成分股名单与指数点位来自中证指数官网，个股估值与分红来自东方财富；采用<b>最新一期成分股名单</b>回溯计算，未还原历史调仓，早期数值与当期真实成分股口径存在差异，仅供参考。</p>
+        <p class="muted">市盈率/市净率分位越低越便宜；股息率、股息率利差分位越高越便宜。本页面仅作数据展示，不构成任何投资建议。</p>
+      </div>
+    </div>
+    <div class="foot-bar">
+      <span id="footMeta">--</span>
+      <span>本地静态页面 · 数据由 scripts/fetch_data.py 生成</span>
+    </div>
+  </footer>
+</div>
+
+<script src="vendor/echarts.min.js"></script>
+<script src="data/app-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
